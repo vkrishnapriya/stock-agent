@@ -1,0 +1,49 @@
+{
+  "portfolio_id": "sample-001",
+  "name": "Sample NSE Portfolio",
+  "currency": "INR",
+  "broker_mode": "paper",
+  "created_at": "2025-01-01T09:15:00+05:30",
+  "holdings": [
+    {
+      "symbol": "RELIANCE",
+      "exchange": "NSE",
+      "isin": "INE002A01018",
+      "quantity": 10,
+      "avg_buy_price": 2450.75,
+      "current_price": null,
+      "sector": "Energy"
+    },
+    {
+      "symbol": "INFY",
+      "exchange": "NSE",
+      "isin": "INE009A01021",
+      "quantity": 25,
+      "avg_buy_price": 1820.50,
+      "current_price": null,
+      "sector": "Information Technology"
+    },
+    {
+      "symbol": "HDFCBANK",
+      "exchange": "NSE",
+      "isin": "INE040A01034",
+      "quantity": 15,
+      "avg_buy_price": 1710.00,
+      "current_price": null,
+      "sector": "Banking"
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "NSE",
+      "isin": "INE467B01029",
+      "quantity": 8,
+      "avg_buy_price": 3950.25,
+      "current_price": null,
+      "sector": "Information Technology"
+    }
+  ],
+  "cash_balance_inr": 50000.00,
+  "risk_profile": "moderate",
+  "max_position_pct": 0.20,
+  "stop_loss_pct": 0.05
+}

@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment files
+.env.local
+.env.*.local
+*.secret
+
+# Data directories (generated)
+data/cache/
+data/reports/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Windows-specific
+Thumbs.db
+desktop.ini
+*.lnk
+$RECYCLE.BIN/
+ehthumbs.db
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/
