@@ -1,0 +1,49 @@
+# ── LLM / AI ─────────────────────────────────────────────────────────────────
+crewai[tools]==0.80.0
+google-generativeai==0.8.4
+langchain-google-genai==2.0.9
+langchain-community==0.3.20
+langchain-ollama==0.2.3
+ollama==0.4.7
+
+# ── Broker / Market Data ──────────────────────────────────────────────────────
+kiteconnect==5.0.1
+yfinance==0.2.51
+nsepy==0.8
+ta-lib==0.6.8
+
+# ── Data / Numerics ───────────────────────────────────────────────────────────
+pandas==2.2.3
+numpy==2.2.3
+scipy==1.15.2
+
+# ── News / Web Scraping ───────────────────────────────────────────────────────
+tavily-python==0.5.1
+gnews==0.3.7
+httpx==0.28.1
+beautifulsoup4==4.13.3
+playwright==1.50.0
+feedparser==6.0.11
+
+# ── API / Web ─────────────────────────────────────────────────────────────────
+fastapi==0.115.8
+uvicorn==0.34.0
+pydantic>=2.7,<3.0
+
+# ── Persistence / Queue ───────────────────────────────────────────────────────
+redis==5.2.1
+sqlalchemy==2.0.38
+asyncpg==0.30.0
+alembic==1.14.1
+celery==5.4.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+structlog==25.1.0
+typer==0.15.2
+rich==13.9.4
+tenacity==9.0.0
+pytz==2025.1
+
+# ── Observability ─────────────────────────────────────────────────────────────
+prometheus-client==0.21.1
