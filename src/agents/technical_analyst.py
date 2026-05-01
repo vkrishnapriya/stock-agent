@@ -24,27 +24,17 @@ from src.tools.market.yfinance_tools import OHLCVFetchTool
 from src.tools.technical.indicator_engine import IndicatorEngineTool
 from src.tools.technical.support_resistance import SupportResistanceTool
 
-_ROLE = "Senior Technical Analyst for Indian Equity Markets"
+_ROLE = "Technical Analyst for Indian Equity Markets"
 
 _GOAL = (
-    "Analyse price action, volume dynamics, and multi-timeframe technical "
-    "indicators for NSE-listed equities to identify high-probability entry "
-    "and exit signals. Produce a structured TechnicalSignal with a composite "
-    "score in the range -100 (extreme bearish) to +100 (extreme bullish), "
-    "along with concrete support and resistance levels in INR."
+    "Analyse NSE price action and indicators to produce a TechnicalSignal "
+    "with score (-100 to +100), trend, support/resistance levels in INR."
 )
 
 _BACKSTORY = (
-    "You are a Chartered Market Technician (CMT) with 15 years of experience "
-    "analysing Indian equity markets. You specialise in reading NSE price action "
-    "across multiple time-frames, combining momentum indicators (RSI, MACD) with "
-    "trend filters (SMA 50/200), volatility bands (Bollinger Bands), and volume "
-    "confirmation (OBV, VWAP) to form high-conviction views. "
-    "You are intimately familiar with NSE-specific dynamics: circuit breakers, "
-    "F&O expiry effects on open interest, and how FII/DII flows influence "
-    "large-cap technicals. "
-    "Your analysis always respects the tick size of ₹0.05 and you never "
-    "recommend positions without a clearly defined stop-loss and target."
+    "CMT with 10 years analysing NSE equities. You combine RSI, MACD, "
+    "SMA 50/200, Bollinger Bands, and OBV to form views. Always define "
+    "stop-loss and target levels."
 )
 
 
@@ -97,7 +87,7 @@ class TechnicalAnalysisAgent(BaseAgent):
     def build_task(
         self,
         symbol: str,
-        period: str = "1y",
+        period: str = "3mo",
         interval: str = "1d",
     ) -> Task:
         """Create a CrewAI Task configured to produce a :class:`TechnicalSignal`.
@@ -112,25 +102,16 @@ class TechnicalAnalysisAgent(BaseAgent):
         """
         yf_symbol = f"{symbol.upper()}.NS"
         description = (
-            f"Perform a complete technical analysis for **{symbol.upper()}** "
-            f"(Yahoo Finance symbol: {yf_symbol}) using {period} of {interval} data.\n\n"
-            "Steps:\n"
-            f"1. Fetch OHLCV data using the `ohlcv_fetch` tool "
-            f"   (symbol={yf_symbol}, period={period}, interval={interval}).\n"
-            "2. Compute technical indicators using the `indicator_engine` tool "
-            f"   (pass the OHLCV JSON and symbol={symbol.upper()}).\n"
-            "3. Fetch support/resistance levels using the `support_resistance` tool "
-            f"   (symbol={yf_symbol}).\n"
-            "4. Synthesise all results into a final TechnicalSignal. "
-            "   Use the pivot-based support/resistance levels from step 3 when "
-            "   they are more precise than the SMA-derived levels from step 2.\n"
-            "5. Ensure the final score is in [-100, +100] and the trend label "
-            "   (BULLISH/BEARISH/NEUTRAL) is consistent with the score."
+            f"Technical analysis for {symbol.upper()} ({yf_symbol}), {period} {interval} data.\n"
+            f"1. `ohlcv_fetch` (symbol={yf_symbol}, period={period}, interval={interval})\n"
+            f"2. `indicator_engine` (symbol={symbol.upper()})\n"
+            f"3. `support_resistance` (symbol={yf_symbol})\n"
+            "4. Return TechnicalSignal: score [-100,+100], trend BULLISH/BEARISH/NEUTRAL, "
+            "support/resistance in INR."
         )
         expected_output = (
-            "A valid TechnicalSignal JSON with fields: symbol, exchange, score, "
-            "trend, rsi, macd_signal, support_level_inr, resistance_level_inr, "
-            "volume_signal, generated_at."
+            "TechnicalSignal JSON: symbol, exchange, score, trend, rsi, macd_signal, "
+            "support_level_inr, resistance_level_inr, volume_signal, generated_at."
         )
         return Task(
             description=description,

@@ -128,7 +128,7 @@ _NSE_RESULTS_DATA_URL = (
     "?index=equities&params={params}&seq_id={seq_id}"
     "&industry={ind_as}&ind={ind_as}&format={fmt}&bank={bank}"
 )
-_NUM_QUARTERS = 8
+_NUM_QUARTERS = 4
 _LAKHS_TO_CRORE = 100  # 1 crore = 100 lakhs
 
 

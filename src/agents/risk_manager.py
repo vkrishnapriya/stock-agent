@@ -35,24 +35,16 @@ log = structlog.get_logger(__name__)
 
 _PORTFOLIO_STATE_KEY = "portfolio:state"
 
-_ROLE = "Senior Risk Manager for Indian Equity Portfolios"
+_ROLE = "Risk Manager for Indian Equity Portfolios"
 
 _GOAL = (
-    "Quantify all material risks for a proposed NSE equity trade: position sizing "
-    "via Kelly criterion, circuit breaker proximity, liquidity / market-impact, "
-    "and portfolio concentration. Produce a structured RiskAssessment with a "
-    "risk_score (0=safe, 100=maximum risk) and a concrete stop-loss in INR."
+    "Assess trade risk: Kelly position sizing, circuit breaker proximity, "
+    "liquidity impact. Produce RiskAssessment with risk_score (0-100) and stop-loss."
 )
 
 _BACKSTORY = (
-    "You are a CFA charterholder with 12 years of risk management experience at "
-    "a SEBI-registered Portfolio Management Service (PMS). You have implemented "
-    "Kelly-criterion position sizing, enforced NSE circuit-breaker compliance, and "
-    "built liquidity-risk dashboards for mid-cap portfolios. "
-    "You always validate that a proposed position respects: (1) NSE circuit limits, "
-    "(2) the 10%-of-ADV market-impact threshold, and (3) the 2% portfolio risk rule. "
-    "You never approve a trade without a clearly defined stop-loss and you always "
-    "check the existing portfolio concentration before adding a new position."
+    "CFA with 10 years PMS risk management. Validate NSE circuit limits, "
+    "10%-ADV market-impact threshold, and 2% portfolio risk rule before approving trades."
 )
 
 
@@ -196,40 +188,22 @@ class RiskManagementAgent(BaseAgent):
             )
 
         description = (
-            f"Perform a complete risk assessment for a proposed trade in "
-            f"**{symbol_upper}** (Yahoo Finance: {yf_symbol}).\n\n"
-            f"Trade parameters:\n"
-            f"  entry_price       = {entry_price:,.2f} INR\n"
-            f"  stop_loss         = {stop_loss:,.2f} INR\n"
-            f"  portfolio_value   = {portfolio_value:,.0f} INR\n"
-            f"  win_rate          = {win_rate}\n"
-            f"  reward_risk_ratio = {reward_risk_ratio}\n"
+            f"Risk assessment for {symbol_upper} ({yf_symbol}). "
+            f"entry={entry_price:,.2f} stop={stop_loss:,.2f} portfolio={portfolio_value:,.0f} INR."
             f"{portfolio_context}\n"
-            "Steps:\n"
-            f"1. Call `circuit_checker` (symbol={symbol_upper}) — get the NSE "
-            "   circuit band and check if the price is near a circuit limit.\n"
-            f"2. Call `position_sizer` (symbol={symbol_upper}, "
-            f"   entry_price={entry_price}, stop_loss={stop_loss}, "
-            f"   portfolio_value={portfolio_value}, win_rate={win_rate}, "
-            f"   reward_risk_ratio={reward_risk_ratio}) — get Kelly + fixed-frac "
-            "   position size, quantity, volatility_pct, beta, max_drawdown_pct.\n"
-            f"3. Call `liquidity_checker` (symbol={yf_symbol}, "
-            "   intended_trade_value_inr=<position_size_inr from step 2>) — "
-            "   assess market-impact risk.\n"
-            "4. Synthesise into a RiskAssessment:\n"
-            "   - risk_score (0–100): weight vol 30%, circuit proximity 20%, "
-            "     liquidity flag 20%, beta 15%, drawdown 15%.\n"
-            "   - volatility_pct, beta, max_drawdown_pct: from step 2.\n"
-            "   - circuit_breaker_band: from step 1.\n"
-            "   - suggested_stop_loss_inr: the provided stop_loss — confirm it is "
-            "     above the circuit lower_limit from step 1.\n"
-            "   - position_size_pct: position_size_pct from step 2.\n"
+            f"1. `circuit_checker` (symbol={symbol_upper})\n"
+            f"2. `position_sizer` (symbol={symbol_upper}, entry_price={entry_price}, "
+            f"stop_loss={stop_loss}, portfolio_value={portfolio_value}, "
+            f"win_rate={win_rate}, reward_risk_ratio={reward_risk_ratio})\n"
+            f"3. `liquidity_checker` (symbol={yf_symbol}, intended_trade_value_inr=<from step 2>)\n"
+            "4. Return RiskAssessment: risk_score 0-100 (vol 30%, circuit 20%, "
+            "liquidity 20%, beta 15%, drawdown 15%), stop-loss confirmed above circuit lower limit."
         )
 
         expected_output = (
-            "A valid RiskAssessment JSON with fields: symbol, exchange, risk_score, "
-            "volatility_pct, beta, max_drawdown_pct, circuit_breaker_band, "
-            "suggested_stop_loss_inr, position_size_pct, generated_at."
+            "RiskAssessment JSON: symbol, exchange, risk_score, volatility_pct, beta, "
+            "max_drawdown_pct, circuit_breaker_band, suggested_stop_loss_inr, "
+            "position_size_pct, generated_at."
         )
 
         return Task(

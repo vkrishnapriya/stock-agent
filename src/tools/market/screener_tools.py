@@ -42,7 +42,8 @@ log = structlog.get_logger(__name__)
 _SCREENER_URL = "https://www.screener.in/company/{symbol}/consolidated/"
 _CACHE_TTL = 3_600          # 1 hour
 _REQUEST_DELAY = 2.0        # seconds between requests (courtesy rate limit)
-_NUM_QUARTERLY = 8          # most-recent quarters to return
+_NUM_QUARTERLY = 4          # most-recent quarters to return
+_NUM_ANNUAL = 5             # most-recent annual periods to return
 
 _HEADERS = {
     "User-Agent": (
@@ -206,15 +207,15 @@ class ScreenerFinancialsTool(BaseTool):
         # ── Key ratios ────────────────────────────────────────────────────
         key_ratios = _parse_top_ratios(soup)
 
-        # ── Annual sections ────────────────────────────────────────────────
+        # ── Annual sections (last N years only) ───────────────────────────
         pl_section = soup.find("section", {"id": "profit-loss"})
-        annual_pl = _parse_table(pl_section) if pl_section else {}  # type: ignore[arg-type]
+        annual_pl = _last_n_cols(_parse_table(pl_section) if pl_section else {}, _NUM_ANNUAL)  # type: ignore[arg-type]
 
         bs_section = soup.find("section", {"id": "balance-sheet"})
-        balance_sheet = _parse_table(bs_section) if bs_section else {}  # type: ignore[arg-type]
+        balance_sheet = _last_n_cols(_parse_table(bs_section) if bs_section else {}, _NUM_ANNUAL)  # type: ignore[arg-type]
 
         cf_section = soup.find("section", {"id": "cash-flow"})
-        cash_flows = _parse_table(cf_section) if cf_section else {}  # type: ignore[arg-type]
+        cash_flows = _last_n_cols(_parse_table(cf_section) if cf_section else {}, _NUM_ANNUAL)  # type: ignore[arg-type]
 
         # ── Quarterly results (last N quarters) ────────────────────────────
         qr_section = soup.find("section", {"id": "quarters"})

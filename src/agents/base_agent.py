@@ -21,7 +21,7 @@ log = structlog.get_logger(__name__)
 
 # Defaults applied to every Agent built by subclasses
 _AGENT_VERBOSE: bool = True
-_AGENT_MAX_ITER: int = 5
+_AGENT_MAX_ITER: int = 3
 _AGENT_MEMORY: bool = False
 
 

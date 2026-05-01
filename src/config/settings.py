@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # ── LLM ──────────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
-    llm_provider: Literal["gemini", "ollama"] = "gemini"
+    llm_provider: Literal["gemini", "groq", "ollama"] = "gemini"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
 
@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     kite_access_token: str = ""
     upstox_api_key: str = ""
     upstox_secret: str = ""
+
+    # ── Groq ──────────────────────────────────────────────────────────────────
+    groq_api_key: str = ""
+    groq_model: str = "groq/llama-3.3-70b-versatile"
 
     # ── News / Data APIs ──────────────────────────────────────────────────────
     tavily_api_key: str = ""

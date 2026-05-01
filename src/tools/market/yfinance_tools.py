@@ -113,6 +113,8 @@ class OHLCVFetchTool(BaseTool):
             df["Datetime" if is_intraday else "Date"].astype(str)
         )
 
+        # Limit to last 60 bars to keep context size small
+        df = df.tail(60)
         result = df.to_json(orient="records")
         self._run_sync_cache_set(cache_key, result, ttl)
         log.info("ohlcv_fetch.done", symbol=symbol, rows=len(df))

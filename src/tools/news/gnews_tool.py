@@ -38,7 +38,7 @@ from src.utils.rate_limiter import RateLimitError
 log = structlog.get_logger(__name__)
 
 _CACHE_TTL = 3_600   # 1 hour
-_MAX_ARTICLES = 10
+_MAX_ARTICLES = 3
 _PERIOD = "7d"
 _LANGUAGE = "en"
 _COUNTRY = "IN"
@@ -121,9 +121,8 @@ class GNewsAPITool(BaseTool):
 
         articles = [
             {
-                "title": a.get("title", ""),
-                "description": a.get("description", ""),
-                "url": a.get("url", ""),
+                "title": a.get("title", "")[:120],
+                "description": a.get("description", "")[:150],
                 "published_at": a.get("published date", ""),
                 "publisher": a.get("publisher", {}).get("title", "")
                 if isinstance(a.get("publisher"), dict)

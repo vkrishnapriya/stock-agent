@@ -46,7 +46,7 @@ _MAX_SHORTLIST = 15        # stocks passed from scanner to sentiment filter
 _MAX_DEEP_ANALYSE = 10     # stocks passed from sentiment to full 4-agent analysis
 _TOP_N = 5                 # final buy candidates returned
 _SENTIMENT_THRESHOLD = -20.0   # stocks below this sentiment score are dropped
-_PARALLEL_WORKERS = 3      # concurrent per-stock analysis crews
+_PARALLEL_WORKERS = 1      # sequential to stay within free-tier RPM limits
 _DEFAULT_STOP_PCT = 0.05   # 5% below entry if RM agent unavailable
 
 

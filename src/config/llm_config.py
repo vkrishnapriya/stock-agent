@@ -13,7 +13,8 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-_GEMINI_MODEL = "gemini-2.0-flash-exp"
+_GEMINI_MODEL = "gemini/gemini-2.5-flash-lite"
+_GROQ_DEFAULT_MODEL = "groq/llama-3.3-70b-versatile"
 _OLLAMA_DEFAULT_MODEL = "llama3.1:8b"
 
 
@@ -22,46 +23,78 @@ def get_llm(provider: str | None = None) -> Any:
     """Return the configured LLM instance.
 
     Args:
-        provider: Override the LLM_PROVIDER env var. Values: "gemini" | "ollama".
+        provider: Override the LLM_PROVIDER env var. Values: "gemini" | "groq" | "ollama".
 
     Returns:
-        A LangChain chat model compatible with CrewAI agents.
+        A crewai.LLM instance compatible with CrewAI agents.
     """
-    resolved = provider or os.environ.get("LLM_PROVIDER", "gemini").lower()
+    from src.config.settings import get_settings
+    resolved = (provider or get_settings().llm_provider).lower()
 
     if resolved == "gemini":
         return _build_gemini()
+    if resolved == "groq":
+        return _build_groq()
     if resolved == "ollama":
         return _build_ollama()
 
     raise ValueError(
-        f"Unknown LLM_PROVIDER '{resolved}'. Valid options: gemini, ollama"
+        f"Unknown LLM_PROVIDER '{resolved}'. Valid options: gemini, groq, ollama"
     )
 
 
 def _build_gemini() -> Any:
-    from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore[import-untyped]
+    from crewai import LLM
 
-    api_key = os.environ.get("GEMINI_API_KEY") or ""
+    from src.config.settings import get_settings
+
+    api_key = get_settings().gemini_api_key or os.environ.get("GEMINI_API_KEY") or ""
     if not api_key:
         raise EnvironmentError(
             "GEMINI_API_KEY is not set. Add it to .env.local or your environment."
         )
 
     log.info("llm.configured", provider="gemini", model=_GEMINI_MODEL)
-    return ChatGoogleGenerativeAI(
+    return LLM(
         model=_GEMINI_MODEL,
-        google_api_key=api_key,
+        api_key=api_key,
         temperature=0.1,
-        convert_system_message_to_human=True,
+        max_retries=5,
+        timeout=120,
+    )
+
+
+def _build_groq() -> Any:
+    from crewai import LLM
+
+    from src.config.settings import get_settings
+
+    api_key = get_settings().groq_api_key or os.environ.get("GROQ_API_KEY") or ""
+    if not api_key:
+        raise EnvironmentError(
+            "GROQ_API_KEY is not set. Add it to .env.local or your environment."
+        )
+
+    model = os.environ.get("GROQ_MODEL", _GROQ_DEFAULT_MODEL)
+    log.info("llm.configured", provider="groq", model=model)
+    return LLM(
+        model=model,
+        api_key=api_key,
+        temperature=0.1,
+        max_retries=5,
+        timeout=120,
     )
 
 
 def _build_ollama() -> Any:
-    from langchain_ollama import ChatOllama  # type: ignore[import-untyped]
+    from crewai import LLM
 
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.environ.get("OLLAMA_MODEL", _OLLAMA_DEFAULT_MODEL)
 
     log.info("llm.configured", provider="ollama", model=model, base_url=base_url)
-    return ChatOllama(model=model, base_url=base_url, temperature=0.1)
+    return LLM(
+        model=f"ollama/{model}",
+        base_url=base_url,
+        temperature=0.1,
+    )

@@ -39,9 +39,15 @@ log = structlog.get_logger(__name__)
 _IST = pytz.timezone("Asia/Kolkata")
 _REPORTS_DIR = Path("data/reports")
 
+# On Windows the default cp1252 terminal can't render Unicode (Rs, braille
+# spinners, etc.). Reconfigure stdout/stderr to UTF-8 before Rich starts.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
 app = typer.Typer(
     name="stock-agent",
-    help="Indian Stock Market Multi-Agent AI (CrewAI + Gemini 2.0 Flash)",
+    help="Indian Stock Market Multi-Agent AI (CrewAI + Gemini 2.5 Flash)",
     add_completion=False,
 )
 console = Console()
@@ -106,7 +112,7 @@ def sell(
     console.print(
         f"Loaded [bold]{p.portfolio_id}[/bold] — "
         f"{len(p.holdings)} holding(s), "
-        f"₹{p.available_cash_inr:,.0f} cash"
+        f"Rs{p.available_cash_inr:,.0f} cash"
     )
 
     with console.status("[yellow]Running analysis crews…[/yellow]"):
@@ -117,7 +123,7 @@ def sell(
     table.add_column("Symbol", style="cyan")
     table.add_column("Action", justify="center")
     table.add_column("Confidence", justify="right")
-    table.add_column("Stop-Loss ₹", justify="right")
+    table.add_column("Stop-Loss Rs", justify="right")
     table.add_column("Rationale")
 
     for d in report.sell_decisions + report.hold_decisions:
@@ -173,7 +179,7 @@ def buy(
         Panel(
             f"[bold cyan]Buyer Workflow[/bold cyan]\n"
             f"Prompt: {prompt}\n"
-            f"Universe: {universe}  |  Available cash: ₹{available_cash:,.0f}"
+            f"Universe: {universe}  |  Available cash: Rs{available_cash:,.0f}"
         )
     )
 
@@ -193,10 +199,10 @@ def buy(
     table.add_column("Rank", justify="right")
     table.add_column("Symbol", style="cyan")
     table.add_column("Score", justify="right")
-    table.add_column("Entry Zone ₹", justify="right")
-    table.add_column("Stop ₹", justify="right")
-    table.add_column("Target ₹", justify="right")
-    table.add_column("Allocation ₹", justify="right")
+    table.add_column("Entry Zone Rs", justify="right")
+    table.add_column("Stop Rs", justify="right")
+    table.add_column("Target Rs", justify="right")
+    table.add_column("Allocation Rs", justify="right")
 
     for i, c in enumerate(candidates, 1):
         table.add_row(
@@ -259,7 +265,7 @@ def scan(
     table.add_column("Sector")
     table.add_column("1M Return %", justify="right")
     table.add_column("Vol Ratio", justify="right")
-    table.add_column("Price ₹", justify="right")
+    table.add_column("Price Rs", justify="right")
 
     for entry in results.entries:
         colour = "green" if entry.momentum_1m_pct >= 0 else "red"
@@ -268,7 +274,7 @@ def scan(
             entry.symbol,
             entry.sector,
             f"[{colour}]{entry.momentum_1m_pct:+.2f}%[/{colour}]",
-            f"{entry.volume_ratio:.2f}×",
+            f"{entry.volume_ratio:.2f}x",
             f"{entry.last_price:,.2f}",
         )
 

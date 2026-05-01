@@ -29,41 +29,16 @@ from src.models.signals import FundamentalScore
 from src.tools.market.nse_fetcher import NSEResultsTool
 from src.tools.market.screener_tools import ScreenerFinancialsTool
 
-_ROLE = "Senior Fundamental Analyst for Indian Equity Markets"
+_ROLE = "Fundamental Analyst for Indian Equity Markets"
 
 _GOAL = (
-    "Produce a rigorous, data-driven fundamental analysis of an NSE-listed stock "
-    "by computing key financial ratios (P/E, PEG, ROE, Debt/Equity, Revenue CAGR), "
-    "assessing earnings quality through quarterly trend analysis, and identifying "
-    "the key business headwinds and tailwinds. Synthesise into a FundamentalScore "
-    "(0 = poor fundamentals, 100 = excellent) with supporting metrics."
+    "Compute P/E, PEG, ROE, D/E, Revenue CAGR for an NSE stock and produce "
+    "a FundamentalScore (0=poor, 100=excellent) with key headwinds/tailwinds."
 )
 
 _BACKSTORY = (
-    "You are a CFA charterholder with 15 years of buy-side equity research experience "
-    "at a leading Mumbai-based asset management company. You have covered Indian IT, "
-    "FMCG, banking, and industrials sectors in depth. Your framework for scoring "
-    "fundamentals is grounded in: (1) earnings quality and consistency, "
-    "(2) capital efficiency (ROE, ROCE, ROIC), (3) balance-sheet strength "
-    "(D/E ratio, interest-coverage), (4) growth trajectory (revenue and earnings "
-    "CAGR), and (5) valuation relative to growth (PEG). "
-    "You always flag when accounting policies (Ind-AS vs IGAAP) or one-off items "
-    "distort reported numbers, and you clearly distinguish between sustainable "
-    "structural tailwinds and cyclical / regulatory headwinds."
-)
-
-# Scoring rubric injected into every task description
-_SCORING_RUBRIC = (
-    "Scoring rubric (0–100):\n"
-    "  ROE > 20% & ROCE > 20%        → +20 pts\n"
-    "  Revenue CAGR 3Y > 15%         → +20 pts\n"
-    "  D/E ratio < 0.5               → +15 pts\n"
-    "  Consistent EPS growth (≥ 5/8 quarters positive YoY) → +15 pts\n"
-    "  P/E < sector median (from NSE pdSectorPe) → +15 pts\n"
-    "  PEG < 1.5                     → +10 pts\n"
-    "  Promoter holding > 40%        → +5 pts\n"
-    "Deduct points proportionally for each metric that is adverse.\n"
-    "If critical data is unavailable, estimate conservatively and note the gap."
+    "CFA with 12 years buy-side equity research in Indian IT, FMCG, banking. "
+    "Score fundamentals on: earnings quality, ROE/ROCE, D/E, revenue CAGR, PEG, promoter holding."
 )
 
 
@@ -133,39 +108,20 @@ class FinancialAnalysisAgent(BaseAgent):
         sector_line = f"Sector: {sector}\n" if sector else ""
 
         description = (
-            f"Perform a complete fundamental analysis for **{symbol_upper}** ({name}).\n"
-            f"{sector_line}\n"
-            "Steps:\n"
-            f"1. Call `screener_financials` (symbol={symbol_upper}) — fetch annual "
-            "   P&L, balance sheet, cash flows, key ratios (P/E, ROE, ROCE, "
-            "   Book Value), the last 8 quarterly results, and latest shareholding.\n"
-            f"2. Call `nse_quarterly_results` (symbol={symbol_upper}) — fetch the "
-            "   last 8 consolidated quarterly results from NSE API to cross-check "
-            "   EPS, revenue, and PAT figures.\n"
-            "3. Compute the following metrics:\n"
-            "   a. **P/E ratio** — use 'Stock P/E' from Screener ratios.\n"
-            "   b. **PB ratio** — use 'Book Value' and current price to compute P/B.\n"
-            "   c. **ROE** — use 'ROE' from Screener ratios (annualised %).\n"
-            "   d. **Debt/Equity** — from latest balance sheet: "
-            "      total_borrowings / (equity_capital + reserves).\n"
-            "   e. **Revenue CAGR 3Y** — from annual P&L: "
-            "      (latest_sales / sales_3y_ago) ^ (1/3) − 1, as a %.\n"
-            "   f. **Earnings growth % (TTM)** — latest 4Q EPS vs prior 4Q EPS.\n"
-            "   g. **PEG** — P/E divided by earnings growth %.\n"
-            "   h. **Promoter holding %** — latest from shareholding section.\n"
-            "4. Identify **headwinds** (risks / challenges) and **tailwinds** "
-            "   (opportunities / competitive advantages) visible in the data:\n"
-            "   - Look at: revenue growth trend, margin trends (OPM%), D/E direction, "
-            "     FII/DII holding changes, consistent or volatile EPS.\n"
-            "5. Score fundamentals (0–100) using the rubric below and synthesise into "
-            "   a FundamentalScore.\n\n"
-            f"{_SCORING_RUBRIC}\n"
+            f"Fundamental analysis for {symbol_upper} ({name}). {sector_line}"
+            f"1. `screener_financials` (symbol={symbol_upper}) — P&L, balance sheet, ratios, shareholding.\n"
+            f"2. `nse_quarterly_results` (symbol={symbol_upper}) — last 8 quarters EPS/revenue/PAT.\n"
+            "3. Compute: P/E, P/B, ROE, D/E, Revenue CAGR 3Y, earnings growth TTM, PEG, promoter holding.\n"
+            "4. Score 0-100: ROE>20%+ROCE>20%(+20), RevCAGR>15%(+20), D/E<0.5(+15), "
+            "consistent EPS(+15), P/E<sector(+15), PEG<1.5(+10), promoter>40%(+5). "
+            "Deduct for adverse metrics.\n"
+            "5. Return FundamentalScore with headwinds and tailwinds."
         )
 
         expected_output = (
-            "A valid FundamentalScore JSON with fields: symbol, exchange, score, "
-            "pe_ratio, pb_ratio, roe_pct, debt_to_equity, revenue_growth_pct, "
-            "earnings_growth_pct, promoter_holding_pct, generated_at."
+            "FundamentalScore JSON: symbol, exchange, score, pe_ratio, pb_ratio, "
+            "roe_pct, debt_to_equity, revenue_growth_pct, earnings_growth_pct, "
+            "promoter_holding_pct, generated_at."
         )
 
         return Task(
