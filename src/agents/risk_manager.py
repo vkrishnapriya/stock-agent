@@ -26,7 +26,7 @@ import structlog
 from crewai import Agent, Task
 
 from src.agents.base_agent import BaseAgent
-from src.models.signals import RiskAssessment
+from src.models.signals import RiskAssessment, RiskAssessmentBatch
 from src.tools.risk.circuit_checker import CircuitBreakerTool
 from src.tools.risk.liquidity_checker import LiquidityCheckerTool
 from src.tools.risk.position_sizer import PositionSizerTool
@@ -211,4 +211,51 @@ class RiskManagementAgent(BaseAgent):
             expected_output=expected_output,
             agent=self.build(),
             output_pydantic=RiskAssessment,
+        )
+
+    def build_batch_task(self, table: str, symbols: list[str], portfolio_value: float) -> Task:
+        """Create a single Task that assesses risk for all *symbols* from a pre-fetched table.
+
+        Args:
+            table: Markdown table with columns: symbol, entry, stop, vol_pct, beta,
+                   max_dd_pct, circuit_band, near_circuit, kelly_pct, pos_size_pct, adv_cr.
+            symbols: Ordered list of NSE symbols present in the table.
+            portfolio_value: Total portfolio value in INR (for context).
+
+        Returns:
+            A :class:`crewai.Task` with ``output_pydantic=RiskAssessmentBatch``.
+        """
+        from crewai import Agent as _Agent
+
+        batch_agent = _Agent(
+            role=_ROLE,
+            goal=_GOAL,
+            backstory=_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[],
+            **self._agent_defaults(),
+        )
+        n = len(symbols)
+        description = (
+            f"Assess trade risk for {n} NSE stocks using the pre-fetched data below.\n"
+            f"Portfolio value: ₹{portfolio_value:,.0f}\n\n"
+            f"{table}\n\n"
+            "Risk score (0–100) per stock — higher = riskier:\n"
+            "  Volatility (30%): vol_pct/40 × 30  (cap at 30)\n"
+            "  Circuit proximity (20%): near_circuit=True → +20, else band-based\n"
+            "  Liquidity (20%): adv_cr<1 → +20, adv_cr<5 → +10, else 0\n"
+            "  Beta (15%): |beta-1| × 10, cap at 15\n"
+            "  Max drawdown (15%): max_dd_pct/50 × 15, cap at 15\n"
+            "  Stop-loss: use the 'stop' column; ensure it is above circuit lower limit.\n"
+            "  Position size: use pos_size_pct from table as suggested allocation.\n\n"
+            f"Return RiskAssessmentBatch with exactly {n} RiskAssessment objects "
+            "in the same order as the table."
+        )
+        return Task(
+            description=description,
+            expected_output=(
+                f"RiskAssessmentBatch JSON with an 'assessments' list of {n} RiskAssessment objects."
+            ),
+            agent=batch_agent,
+            output_pydantic=RiskAssessmentBatch,
         )

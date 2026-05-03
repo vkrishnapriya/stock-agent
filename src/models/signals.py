@@ -141,3 +141,28 @@ class CompetitiveAnalysis(BaseModel):
     @classmethod
     def _peers_upper(cls, v: list[str]) -> list[str]:
         return [p.strip().upper() for p in v]
+
+
+# ---------------------------------------------------------------------------
+# Batch wrappers — one LLM call per agent type for all stocks
+# ---------------------------------------------------------------------------
+
+
+class TechnicalSignalBatch(BaseModel):
+    """Batch output of TechnicalAnalysisAgent — one signal per symbol."""
+    signals: list[TechnicalSignal]
+
+
+class FundamentalScoreBatch(BaseModel):
+    """Batch output of FinancialAnalysisAgent — one score per symbol."""
+    scores: list[FundamentalScore]
+
+
+class RiskAssessmentBatch(BaseModel):
+    """Batch output of RiskManagementAgent — one assessment per symbol."""
+    assessments: list[RiskAssessment]
+
+
+class CompetitiveAnalysisBatch(BaseModel):
+    """Batch output of CompetitorAnalysisAgent — one analysis per symbol."""
+    analyses: list[CompetitiveAnalysis]

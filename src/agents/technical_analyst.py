@@ -19,7 +19,7 @@ from typing import Any
 from crewai import Agent, Task
 
 from src.agents.base_agent import BaseAgent
-from src.models.signals import TechnicalSignal
+from src.models.signals import TechnicalSignal, TechnicalSignalBatch
 from src.tools.market.yfinance_tools import OHLCVFetchTool
 from src.tools.technical.indicator_engine import IndicatorEngineTool
 from src.tools.technical.support_resistance import SupportResistanceTool
@@ -118,4 +118,50 @@ class TechnicalAnalysisAgent(BaseAgent):
             expected_output=expected_output,
             agent=self.build(),
             output_pydantic=TechnicalSignal,
+        )
+
+    def build_batch_task(self, table: str, symbols: list[str]) -> Task:
+        """Create a single Task that analyses all *symbols* from a pre-fetched table.
+
+        No tool calls are made — all indicator data is embedded in *table*.
+
+        Args:
+            table: Markdown table with columns: symbol, price, rsi, macd_hist,
+                   score, trend, support, resistance, vol_signal, mom_1m_pct, vol_ratio.
+            symbols: Ordered list of NSE symbols present in the table.
+
+        Returns:
+            A :class:`crewai.Task` with ``output_pydantic=TechnicalSignalBatch``.
+        """
+        from crewai import Agent as _Agent
+
+        batch_agent = _Agent(
+            role=_ROLE,
+            goal=_GOAL,
+            backstory=_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[],
+            **self._agent_defaults(),
+        )
+        n = len(symbols)
+        description = (
+            f"Review pre-computed technical indicators for {n} NSE stocks in the table below "
+            "and produce a final TechnicalSignal for each.\n\n"
+            f"{table}\n\n"
+            "For each row:\n"
+            "1. Accept the pre-computed score (-100 to +100) unless RSI/MACD/trend strongly "
+            "   contradict it; adjust by ±10 pts maximum.\n"
+            "2. Set trend: BULLISH (score > 20), BEARISH (score < -20), NEUTRAL otherwise.\n"
+            "3. Set volume_signal from the vol_signal column (HIGH/LOW/NORMAL).\n"
+            "4. Use the support and resistance values as provided.\n"
+            f"Return TechnicalSignalBatch with exactly {n} TechnicalSignal objects, "
+            "one per symbol, in the same order as the table."
+        )
+        return Task(
+            description=description,
+            expected_output=(
+                f"TechnicalSignalBatch JSON with a 'signals' list of {n} TechnicalSignal objects."
+            ),
+            agent=batch_agent,
+            output_pydantic=TechnicalSignalBatch,
         )

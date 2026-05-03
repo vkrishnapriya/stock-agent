@@ -25,7 +25,7 @@ from typing import Any
 from crewai import Agent, Task
 
 from src.agents.base_agent import BaseAgent
-from src.models.signals import CompetitiveAnalysis
+from src.models.signals import CompetitiveAnalysis, CompetitiveAnalysisBatch
 from src.tools.market.peer_performance import PeerPricePerformanceTool
 from src.tools.market.screener_tools import CompetitorMapTool
 from src.tools.news.gnews_tool import GNewsAPITool
@@ -133,4 +133,49 @@ class CompetitorAnalysisAgent(BaseAgent):
             expected_output=expected_output,
             agent=self.build(),
             output_pydantic=CompetitiveAnalysis,
+        )
+
+    def build_batch_task(self, table: str, symbols: list[str]) -> Task:
+        """Create a single Task that analyses competitive positioning for all *symbols*.
+
+        Args:
+            table: Markdown table with columns: symbol, sector, peers, peer_count,
+                   1m_ret_pct, 3m_ret_pct, rank_3m, mcap_rank, mom_1m_pct.
+            symbols: Ordered list of NSE symbols present in the table.
+
+        Returns:
+            A :class:`crewai.Task` with ``output_pydantic=CompetitiveAnalysisBatch``.
+        """
+        from crewai import Agent as _Agent
+
+        batch_agent = _Agent(
+            role=_ROLE,
+            goal=_GOAL,
+            backstory=_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[],
+            **self._agent_defaults(),
+        )
+        n = len(symbols)
+        description = (
+            f"Assess competitive positioning for {n} NSE stocks using the table below.\n\n"
+            f"{table}\n\n"
+            "For each stock compute:\n"
+            "  relative_strength [-100,+100]: based on rank_3m among peers "
+            "(rank 1 = +100, last rank = -100, linear scale).\n"
+            "  market_position: LEADER (mcap_rank=1), CHALLENGER (rank 2-3), "
+            "FOLLOWER (rank 4+), NICHE (peer_count < 2).\n"
+            "  moat_score [0-100]: rank_3m=1 → +20, 3m_ret > 0 → +15, "
+            "mcap_rank=1 → +15, mom_1m > 5% → +20, peer_count > 3 → +10, "
+            "positive 1m and 3m returns → +20. Deduct for negative returns.\n\n"
+            f"Return CompetitiveAnalysisBatch with exactly {n} CompetitiveAnalysis objects "
+            "in the same order as the table."
+        )
+        return Task(
+            description=description,
+            expected_output=(
+                f"CompetitiveAnalysisBatch JSON with an 'analyses' list of {n} CompetitiveAnalysis objects."
+            ),
+            agent=batch_agent,
+            output_pydantic=CompetitiveAnalysisBatch,
         )

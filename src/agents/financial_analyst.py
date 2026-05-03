@@ -25,7 +25,7 @@ from typing import Any
 from crewai import Agent, Task
 
 from src.agents.base_agent import BaseAgent
-from src.models.signals import FundamentalScore
+from src.models.signals import FundamentalScore, FundamentalScoreBatch
 from src.tools.market.nse_fetcher import NSEResultsTool
 from src.tools.market.screener_tools import ScreenerFinancialsTool
 
@@ -129,4 +129,51 @@ class FinancialAnalysisAgent(BaseAgent):
             expected_output=expected_output,
             agent=self.build(),
             output_pydantic=FundamentalScore,
+        )
+
+    def build_batch_task(self, table: str, symbols: list[str]) -> Task:
+        """Create a single Task that scores all *symbols* from a pre-fetched financials table.
+
+        Args:
+            table: Markdown table with columns: symbol, sector, pe, pb, roe_pct,
+                   roce_pct, d_e, rev_cagr_3y, eps_growth_pct, promoter_pct.
+            symbols: Ordered list of NSE symbols present in the table.
+
+        Returns:
+            A :class:`crewai.Task` with ``output_pydantic=FundamentalScoreBatch``.
+        """
+        from crewai import Agent as _Agent
+
+        batch_agent = _Agent(
+            role=_ROLE,
+            goal=_GOAL,
+            backstory=_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[],
+            **self._agent_defaults(),
+        )
+        n = len(symbols)
+        description = (
+            f"Score the fundamentals for {n} NSE stocks using the pre-fetched data table below.\n\n"
+            f"{table}\n\n"
+            "Scoring rubric (0–100) per stock:\n"
+            "  ROE>20% and ROCE>20%   → +20 pts\n"
+            "  Revenue CAGR 3Y > 15%  → +20 pts\n"
+            "  D/E < 0.5              → +15 pts\n"
+            "  Consistent EPS growth  → +15 pts\n"
+            "  P/E below sector avg   → +15 pts\n"
+            "  PEG (PE/eps_growth) < 1.5 → +10 pts\n"
+            "  Promoter holding > 40% → +5 pts\n"
+            "  Deduct for adverse metrics (high D/E, falling EPS, loss-making).\n"
+            "  Use N/A values as 50% neutral — do not discard the stock.\n\n"
+            f"Return FundamentalScoreBatch with exactly {n} FundamentalScore objects "
+            "in the same order as the table."
+        )
+        return Task(
+            description=description,
+            expected_output=(
+                f"FundamentalScoreBatch JSON with a 'scores' list of {n} FundamentalScore objects."
+            ),
+            agent=batch_agent,
+            output_pydantic=FundamentalScoreBatch,
         )

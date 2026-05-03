@@ -211,7 +211,7 @@ class BaseTool(CrewBaseTool):
             asyncio.get_running_loop()
             # Already inside a running loop — delegate to a worker thread
             # that owns its own event loop.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
                 future = pool.submit(asyncio.run, self._execute(*args, **kwargs))
                 return future.result()
         except RuntimeError:

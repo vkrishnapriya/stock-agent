@@ -108,8 +108,8 @@ class BuyerWorkflow:
             log.warning("buyer_workflow.no_candidates_after_filter")
             return []
 
-        # ── Step 3: Parallel 4-agent deep analysis ────────────────────────
-        raw_results = self._run_parallel_analysis(to_analyse, available_cash)
+        # ── Step 3: Batch 4-agent analysis (1 LLM call per agent type) ───────
+        raw_results = self._run_batch_analysis(to_analyse, available_cash)
 
         # ── Step 4: Score, build BuyCandidate objects, and rank ───────────
         candidates: list[BuyCandidate] = []
@@ -194,10 +194,10 @@ class BuyerWorkflow:
             return None
 
     # ------------------------------------------------------------------
-    # Step 3: Parallel deep analysis
+    # Step 3: Batch analysis (1 LLM call per agent type, all stocks at once)
     # ------------------------------------------------------------------
 
-    def _run_parallel_analysis(
+    def _run_batch_analysis(
         self,
         entries: list[ScanEntry],
         available_cash: float,
@@ -207,75 +207,65 @@ class BuyerWorkflow:
         FundamentalScore | None,
         CompetitiveAnalysis | None,
     ]]]:
-        """Run 4-agent crews for each entry in parallel threads."""
-        results: list[tuple[ScanEntry, Any]] = []
+        """Pre-fetch all data, then fire 4 parallel LLM batch calls (one per agent type).
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
-            future_to_entry = {
-                pool.submit(
-                    self._run_deep_analysis, entry, available_cash
-                ): entry
-                for entry in entries
-            }
-            for future in concurrent.futures.as_completed(future_to_entry):
-                entry = future_to_entry[future]
-                try:
-                    signals = future.result()
-                    results.append((entry, signals))
-                except Exception as exc:
-                    log.error(
-                        "buyer_workflow.analysis_failed",
-                        symbol=entry.symbol,
-                        error=str(exc),
-                    )
-                    results.append((entry, (None, None, None, None)))
+        Reduces LLM calls from N×4 to exactly 4, regardless of how many stocks
+        are in *entries*.
+        """
+        from src.workflows.batch_data_fetcher import BatchDataFetcher
 
-        return results
-
-    def _run_deep_analysis(
-        self,
-        entry: ScanEntry,
-        available_cash: float,
-    ) -> tuple[
-        TechnicalSignal | None,
-        RiskAssessment | None,
-        FundamentalScore | None,
-        CompetitiveAnalysis | None,
-    ]:
-        """Run TA + RM + FA + CA crew for a single entry."""
-        symbol = entry.symbol
-        last_price = entry.last_price
-        stop_loss = last_price * (1.0 - _DEFAULT_STOP_PCT)
-
-        ta_ag = TechnicalAnalysisAgent()
-        rm_ag = RiskManagementAgent()
-        fa_ag = FinancialAnalysisAgent()
-        ca_ag = CompetitorAnalysisAgent()
-
-        ta_task = ta_ag.build_task(symbol)
-        rm_task = rm_ag.build_task(
-            symbol=symbol,
-            entry_price=last_price,
-            stop_loss=stop_loss,
-            portfolio_value=available_cash,
+        symbols = [e.symbol for e in entries]
+        log.info("buyer_workflow.batch_fetch_start", stocks=len(symbols))
+        tech_table, fund_table, risk_table, comp_table = BatchDataFetcher().fetch_from_entries(
+            entries, available_cash
         )
-        fa_task = fa_ag.build_task(symbol=symbol, sector=entry.sector)
-        ca_task = ca_ag.build_task(symbol=symbol, sector=entry.sector)
+        log.info("buyer_workflow.batch_fetch_done")
 
-        crew = Crew(
-            agents=[ta_task.agent, rm_task.agent, fa_task.agent, ca_task.agent],
-            tasks=[ta_task, rm_task, fa_task, ca_task],
-            process=Process.sequential,
-            verbose=False,
-        )
-        result = crew.kickoff()
-        outputs = getattr(result, "tasks_output", []) or []
-        return (
-            _pydantic(outputs, 0),
-            _pydantic(outputs, 1),
-            _pydantic(outputs, 2),
-            _pydantic(outputs, 3),
-        )
+        ta_task = TechnicalAnalysisAgent().build_batch_task(tech_table, symbols)
+        fa_task = FinancialAnalysisAgent().build_batch_task(fund_table, symbols)
+        rm_task = RiskManagementAgent().build_batch_task(risk_table, symbols, available_cash)
+        ca_task = CompetitorAnalysisAgent().build_batch_task(comp_table, symbols)
+
+        # Fire all 4 LLM calls in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            ta_fut = pool.submit(self._kickoff_batch, ta_task)
+            fa_fut = pool.submit(self._kickoff_batch, fa_task)
+            rm_fut = pool.submit(self._kickoff_batch, rm_task)
+            ca_fut = pool.submit(self._kickoff_batch, ca_task)
+
+        ta_batch = ta_fut.result()
+        fa_batch = fa_fut.result()
+        rm_batch = rm_fut.result()
+        ca_batch = ca_fut.result()
+
+        ta_map = {s.symbol: s for s in (ta_batch.signals      if ta_batch else [])}
+        fa_map = {s.symbol: s for s in (fa_batch.scores       if fa_batch else [])}
+        rm_map = {s.symbol: s for s in (rm_batch.assessments  if rm_batch else [])}
+        ca_map = {s.symbol: s for s in (ca_batch.analyses     if ca_batch else [])}
+
+        return [
+            (
+                entry,
+                (
+                    ta_map.get(entry.symbol),
+                    rm_map.get(entry.symbol),
+                    fa_map.get(entry.symbol),
+                    ca_map.get(entry.symbol),
+                ),
+            )
+            for entry in entries
+        ]
+
+    def _kickoff_batch(self, task: Any) -> Any:
+        """Run a single-agent batch crew and return the Pydantic output."""
+        try:
+            crew = Crew(agents=[task.agent], tasks=[task], process=Process.sequential, verbose=False)
+            result = crew.kickoff()
+            outputs = getattr(result, "tasks_output", []) or []
+            return _pydantic(outputs, 0)
+        except Exception as exc:
+            log.error("buyer_workflow.batch_agent_failed", error=str(exc), exc_info=True)
+            return None
 
     # ------------------------------------------------------------------
     # Step 4: Build BuyCandidate
