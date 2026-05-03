@@ -88,6 +88,26 @@ _SECTOR_MAP: dict[str, str] = {
     "ADANIPORTS": "Infrastructure", "ADANIENT": "Diversified",
     "JSWSTEEL": "Steel", "HINDALCO": "Metals", "UPL": "Agri",
     "ZOMATO": "Consumer Tech", "NYKAA": "Consumer Tech",
+    # NIFTY100 additions
+    "PIDILITIND": "Chemicals",    "BERGEPAINT": "Paints",      "HAVELLS": "Consumer Electricals",
+    "DABUR": "FMCG",              "MARICO": "FMCG",            "GODREJCP": "FMCG",
+    "COLPAL": "FMCG",             "MCDOWELL-N": "Beverages",   "PAGEIND": "Textiles",
+    "VOLTAS": "Consumer Electricals",
+    "AMBUJACEM": "Cement",        "SHREECEM": "Cement",        "RAMCOCEM": "Cement",
+    "ACC": "Cement",              "DALBHARAT": "Cement",
+    "BANKBARODA": "Banking",      "CANBK": "Banking",          "PNB": "Banking",
+    "UNIONBANK": "Banking",       "IDFCFIRSTB": "Banking",     "BANDHANBNK": "Banking",
+    "FEDERALBNK": "Banking",      "RBLBANK": "Banking",        "AUBANK": "Banking",
+    "CSBANK": "Banking",
+    "MFSL": "Insurance",          "ICICIPRULI": "Insurance",   "ICICIGI": "Insurance",
+    "NIACL": "Insurance",         "GICRE": "Insurance",
+    "RECLTD": "Power Finance",    "PFC": "Power Finance",      "IRFC": "Infra Finance",
+    "NHPC": "Power",              "SJVN": "Power",
+    "NMDC": "Mining",             "VEDL": "Metals",            "NATIONALUM": "Metals",
+    "SAIL": "Steel",              "JINDALSTEL": "Steel",
+    "PAYTM": "Fintech",           "POLICYBZR": "Insurtech",    "DELHIVERY": "Logistics",
+    "CHOLAFIN": "NBFC",           "MUTHOOTFIN": "NBFC",        "BAJAJHLDNG": "NBFC",
+    "LICHSGFIN": "NBFC",          "SHRIRAMFIN": "NBFC",
 }
 
 
@@ -119,7 +139,7 @@ class MarketScannerAgent:
         print(results.shortlist(5))
     """
 
-    def scan(self, universe: str = "NIFTY50", top_n: int = 20) -> ScanResults:
+    def scan(self, universe: str = "NIFTY500", top_n: int = 20) -> ScanResults:
         """Screen *universe* and return top-*top_n* stocks by 1M momentum.
 
         Args:

@@ -156,7 +156,7 @@ def buy(
         help='Natural-language buy intent, e.g. "IT sector opportunities under Rs 2000".',
     ),
     universe: str = typer.Option(
-        "NIFTY50",
+        "NIFTY500",
         "--universe",
         "-u",
         help="Stock universe to scan: NIFTY50, NIFTY100, NIFTY500.",

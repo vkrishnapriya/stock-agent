@@ -68,7 +68,7 @@ class BuyerWorkflow:
 
     def run(
         self,
-        universe: str = "NIFTY50",
+        universe: str = "NIFTY500",
         prompt: str = "",
         available_cash: float = 100_000.0,
     ) -> list[BuyCandidate]:
@@ -132,7 +132,7 @@ class BuyerWorkflow:
 
     def run_as_report(
         self,
-        universe: str = "NIFTY50",
+        universe: str = "NIFTY500",
         prompt: str = "",
         available_cash: float = 100_000.0,
     ) -> FinalReport:

@@ -97,7 +97,7 @@ class WorkflowDirector:
         self,
         prompt: str,
         portfolio_path: str | None = None,
-        universe: str = "NIFTY50",
+        universe: str = "NIFTY500",
         available_cash: float = 100_000.0,
     ) -> FinalReport:
         """Classify *prompt*, pick the right workflow, and return a report.
