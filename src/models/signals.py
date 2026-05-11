@@ -108,6 +108,12 @@ class SentimentResult(BaseModel):
     score: float = Field(ge=-100.0, le=100.0, description="-100=very negative, +100=very positive")
     news_sentiment: Literal["POSITIVE", "NEGATIVE", "NEUTRAL"]
     social_sentiment: Literal["POSITIVE", "NEGATIVE", "NEUTRAL"]
+    whale_signal: Literal["BULLISH", "BEARISH", "NEUTRAL"] = "NEUTRAL"
+    whale_activity: list[str] = Field(
+        default_factory=list,
+        description="Human-readable lines describing each super-investor deal, e.g. "
+                    "'BUY: Dolly Khanna bought 80,000 shares @ ₹1,480 on 02-May-2026'.",
+    )
     headline_count: int = Field(ge=0)
     key_themes: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_now_ist)

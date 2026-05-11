@@ -289,19 +289,13 @@ class BuyerWorkflow:
         return passed
 
     def _run_sentiment(self, symbol: str) -> SentimentResult | None:
-        """Run a single-agent NewsSentimentAgent crew for *symbol*."""
+        """Run the two-agent whale-researcher + analyst crew for *symbol*."""
         try:
-            agent = NewsSentimentAgent()
-            task = agent.build_task(symbol=symbol)
-            crew = Crew(
-                agents=[task.agent],
-                tasks=[task],
-                process=Process.sequential,
-                verbose=False,
-            )
+            crew = NewsSentimentAgent().build_crew(symbol=symbol)
             result = crew.kickoff()
             outputs = getattr(result, "tasks_output", []) or []
-            return _pydantic(outputs, 0)
+            # Task 0 = whale researcher (plain text), Task 1 = analyst (SentimentResult)
+            return _pydantic(outputs, 1)
         except Exception as exc:
             log.warning("buyer_workflow.sentiment_failed", symbol=symbol, error=str(exc))
             return None

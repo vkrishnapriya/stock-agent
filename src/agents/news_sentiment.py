@@ -1,58 +1,66 @@
 """
 src/agents/news_sentiment.py
-NewsSentimentAgent — financial news analysis and sentiment scoring.
+NewsSentimentAgent — financial news + whale-activity sentiment scoring.
 
-Wires together:
-  * NSEAnnouncementTool — official corporate filings from NSE
-  * GNewsAPITool        — recent news articles (Google News)
-  * TavilySearchTool    — deep AI web search (earnings, analyst views)
+Two-agent sequential crew:
 
-The agent instructs Gemini to:
-  1. Read all source material (announcements + articles).
-  2. Identify material events (earnings beat/miss, management change,
-     regulatory action, dividend/buyback, credit-rating action, etc.).
-  3. Score overall sentiment from -100 (very negative) to +100 (very positive).
-  4. Classify news_sentiment and social_sentiment separately.
-  5. Return a structured :class:`~src.models.signals.SentimentResult`.
+  Agent 1 — WhaleResearcherAgent
+    Tools : WhaleTrackerTool, TavilySearchTool
+    Role  : Audits NSE bulk/block deals and web sources for activity by known
+            top Indian super investors (Dolly Khanna, Ashish Kacholia, Vijay
+            Kedia, Rekha Jhunjhunwala, Sunil Singhania, Radhakishan Damani …).
+    Output: Plain-text whale activity report passed as context to Agent 2.
 
-Use :meth:`build_task` to create a Task with
-``output_pydantic=SentimentResult`` already set.
+  Agent 2 — NewsSentimentAgent  (this class)
+    Tools : NSEAnnouncementTool, GNewsAPITool, TavilySearchTool
+    Role  : Reads NSE filings, news, and the whale-activity context to produce
+            a final :class:`~src.models.signals.SentimentResult` that includes
+            ``whale_signal`` and ``whale_activity`` fields.
+
+Typical usage via :meth:`build_crew`::
+
+    agent  = NewsSentimentAgent()
+    crew   = agent.build_crew(symbol="INFY")
+    result = crew.kickoff()
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from crewai import Agent, Task
+from crewai import Agent, Crew, Process, Task
 
 from src.agents.base_agent import BaseAgent
 from src.models.signals import SentimentResult
 from src.tools.news.gnews_tool import GNewsAPITool
 from src.tools.news.nse_announcements import NSEAnnouncementTool
 from src.tools.news.tavily_tool import TavilySearchTool
+from src.tools.news.whale_tracker import WhaleTrackerTool
+
+# ---------------------------------------------------------------------------
+# Agent 2 — News & Sentiment Analyst
+# ---------------------------------------------------------------------------
 
 _ROLE = "Senior Financial News Analyst for Indian Equity Markets"
 
 _GOAL = (
-    "Analyse all available news, corporate announcements, and web search results "
-    "for an NSE-listed stock to produce an accurate, data-driven sentiment score "
-    "in the range -100 (extremely negative) to +100 (extremely positive). "
-    "Identify every material event that could affect share price and surface the "
-    "dominant themes investors should monitor."
+    "Analyse all available news, corporate announcements, whale-investor activity, "
+    "and web search results for an NSE-listed stock to produce an accurate, "
+    "data-driven sentiment score in the range -100 (extremely negative) to "
+    "+100 (extremely positive). Identify every material event that could affect "
+    "share price and surface the dominant themes investors should monitor."
 )
 
 _BACKSTORY = (
     "You are a financial journalist turned buy-side analyst with 10 years of "
-    "experience covering Indian equities for a Mumbai-based fund. You have "
-    "developed a systematic framework for distinguishing material events "
-    "(earnings surprises, management changes, regulatory actions, credit-rating "
-    "moves, F&O ban-list additions) from noise (routine filings, minor corporate "
-    "actions). You are fluent in reading NSE LODR disclosures and BSE exchange "
-    "filings. You never let recency bias inflate sentiment — a single negative "
-    "earnings miss outweighs ten neutral articles. "
-    "You always separate news-based sentiment (driven by official filings and "
-    "financial media) from social/retail sentiment (driven by forums, social "
-    "media chatter, and retail analyst commentary)."
+    "experience covering Indian equities for a Mumbai-based fund. You distinguish "
+    "material events (earnings surprises, management changes, regulatory actions, "
+    "credit-rating moves, F&O ban-list additions) from noise. You are fluent in "
+    "NSE LODR disclosures and BSE filings. You weight smart-money (super investor) "
+    "activity heavily — when recent activity from a known whale like Dolly Khanna or Ashish Kacholia "
+    "accumulates, it is a significant bullish signal that can shift the score by "
+    "up to +20 points; exits shift it by −20. You never let recency bias inflate "
+    "sentiment — a single negative earnings miss outweighs ten neutral articles."
 )
 
 # Material events the agent must watch for
@@ -64,16 +72,54 @@ _MATERIAL_EVENTS = (
     "contract cancellation, quarterly guidance revision"
 )
 
+# ---------------------------------------------------------------------------
+# Agent 1 — Whale / Super-Investor Researcher
+# ---------------------------------------------------------------------------
+
+_WHALE_ROLE = "Financial News Auditor & Super-Investor Tracker"
+
+_WHALE_GOAL = (
+    "Identify official portfolio changes and public statements by top Indian "
+    "super investors for a given NSE stock. Separate confirmed regulatory "
+    "filings (NSE bulk/block deals) from social-media rumour and speculation."
+)
+
+_WHALE_BACKSTORY = (
+    "You are an expert in Indian equity markets with deep knowledge of the "
+    "disclosure rules under SEBI's LODR regulations. You track bulk/block "
+    "deal filings daily and cross-reference them with public statements from "
+    "India's most respected super investors:\n"
+    "  • Radhakishan Damani — DMart promoter, deep-value buyer\n"
+    "  • Dolly Khanna       — known for early entries in small/mid-cap turnarounds\n"
+    "  • Vijay Kedia        — runs Kedia Securities; often in capital-goods stocks\n"
+    "  • Ashish Kacholia    — Lucky Securities; quality small-cap compounders\n"
+    "  • Porinju Veliyath   — Equity Intelligence; high-conviction contrarian bets\n"
+    "  • Rekha Jhunjhunwala — Rare Enterprises; carries forward Rakesh's legacy\n"
+    "  • Sunil Singhania    — Abakkus Asset Manager; diversified growth focus\n"
+    "  • Rajeev Thakkar     — PPFAS Mutual Fund; long-only value discipline\n"
+    "  • Saurabh Mukherjea  — Marcellus Investment; consistent compounders\n"
+    "You clearly distinguish BUY activity (accumulation signal) from SELL "
+    "activity (distribution signal) and flag when multiple whales act in the "
+    "same direction simultaneously — that is a high-conviction signal."
+)
+
 
 class NewsSentimentAgent(BaseAgent):
-    """CrewAI agent that analyses financial news and produces a SentimentResult.
+    """Two-agent crew: WhaleResearcher → NewsSentimentAnalyst.
+
+    The preferred entry point is :meth:`build_crew`, which returns a ready-to-run
+    sequential :class:`crewai.Crew` that passes whale-activity context from the
+    researcher to the analyst.
+
+    Single-agent fallback (:meth:`build_task`) is still available for cases where
+    you only need the analyst task (e.g. testing).
 
     Usage::
 
-        agent = NewsSentimentAgent()
-        task  = agent.build_task(symbol="INFY", company_name="Infosys")
-        crew  = Crew(agents=[agent.build()], tasks=[task])
+        agent  = NewsSentimentAgent()
+        crew   = agent.build_crew(symbol="INFY", company_name="Infosys")
         result = crew.kickoff()
+        # SentimentResult is in result.tasks_output[1].pydantic
     """
 
     #: The Pydantic model this agent is designed to produce.
@@ -84,6 +130,7 @@ class NewsSentimentAgent(BaseAgent):
         extra_tools: list[Any] | None = None,
         llm_provider: str | None = None,
     ) -> None:
+        # Analyst tools
         tools = [
             NSEAnnouncementTool(),
             GNewsAPITool(),
@@ -93,11 +140,11 @@ class NewsSentimentAgent(BaseAgent):
         super().__init__(tools=tools, llm_provider=llm_provider)
 
     # ------------------------------------------------------------------
-    # BaseAgent interface
+    # BaseAgent interface — builds the Analyst agent
     # ------------------------------------------------------------------
 
     def build(self) -> Agent:
-        """Return the configured CrewAI Agent."""
+        """Return the configured Analyst CrewAI Agent."""
         return Agent(
             role=_ROLE,
             goal=_GOAL,
@@ -108,21 +155,81 @@ class NewsSentimentAgent(BaseAgent):
         )
 
     # ------------------------------------------------------------------
-    # Task factory
+    # Agent 1 factory — Whale Researcher
+    # ------------------------------------------------------------------
+
+    def _build_whale_researcher(self) -> Agent:
+        """Return the Whale Researcher agent (Agent 1 in the crew)."""
+        return Agent(
+            role=_WHALE_ROLE,
+            goal=_WHALE_GOAL,
+            backstory=_WHALE_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[WhaleTrackerTool(), TavilySearchTool()],
+            **self._agent_defaults(),
+        )
+
+    def build_whale_research_task(self, symbol: str, company_name: str = "") -> Task:
+        """Create Task 1: audit super-investor activity for *symbol*.
+
+        Args:
+            symbol:       NSE ticker without suffix (e.g. ``"INFY"``).
+            company_name: Human-readable company name for Tavily queries.
+
+        Returns:
+            A :class:`crewai.Task` whose output is plain text — a structured
+            whale-activity report consumed as context by the analyst task.
+        """
+        symbol_upper = symbol.strip().upper()
+        name = company_name.strip() or symbol_upper
+
+        description = (
+            f"Audit super-investor activity for **{symbol_upper}** ({name}).\n\n"
+            "Steps:\n"
+            f"1. Call `whale_tracker` (symbol={symbol_upper}) — fetch all NSE bulk "
+            "   and block deals. Identify which known super investors bought or sold "
+            "   and the quantities/prices involved.\n"
+            f"2. Call `tavily_search` with query: "
+            f'   "{name} {symbol_upper} Dolly Khanna OR Ashish Kacholia OR Vijay Kedia '
+            f'   OR Rekha Jhunjhunwala OR Sunil Singhania OR Radhakishan Damani portfolio 2026"\n'
+            "   — find any recent public statements, interviews, or disclosures where "
+            "   these investors mention the stock.\n"
+            "3. Produce a structured whale-activity report with:\n"
+            "   • List every confirmed BUY (name, quantity, price, date)\n"
+            "   • List every confirmed SELL (name, quantity, price, date)\n"
+            "   • Highlight if multiple whales acted in the same direction\n"
+            "   • Note any public quotes or views expressed about the stock\n"
+            "   • Set overall whale_signal: BULLISH (more buys), BEARISH (more sells), "
+            "     or NEUTRAL (no activity or balanced)\n"
+        )
+
+        return Task(
+            description=description,
+            expected_output=(
+                "Plain-text whale activity report: confirmed buys, confirmed sells, "
+                "public quotes, and a one-line whale_signal summary "
+                "(e.g. 'BULLISH — Dolly Khanna and Ashish Kacholia both accumulated')."
+            ),
+            agent=self._build_whale_researcher(),
+        )
+
+    # ------------------------------------------------------------------
+    # Task 2 factory — News Sentiment Analyst
     # ------------------------------------------------------------------
 
     def build_task(
         self,
         symbol: str,
         company_name: str = "",
+        context: list[Task] | None = None,
     ) -> Task:
-        """Create a CrewAI Task configured to produce a :class:`SentimentResult`.
+        """Create Task 2: news + whale-context sentiment analysis.
 
         Args:
             symbol:       NSE ticker without suffix (e.g. ``"INFY"``).
-            company_name: Full or common company name (e.g. ``"Infosys"``).
-                          Used to build richer GNews and Tavily queries.
-                          Falls back to symbol if omitted.
+            company_name: Full or common company name.
+            context:      List of upstream Tasks whose output is injected as
+                          context (pass the whale research task here).
 
         Returns:
             A :class:`crewai.Task` with ``output_pydantic=SentimentResult``.
@@ -132,43 +239,75 @@ class NewsSentimentAgent(BaseAgent):
 
         description = (
             f"Perform a comprehensive financial news and sentiment analysis for "
-            f"**{symbol_upper}** ({name}).\n\n"
+            f"**{symbol_upper}** ({name}), incorporating the whale-activity "
+            f"context provided by the researcher.\n\n"
             "Steps:\n"
             f"1. Call `nse_announcements` (symbol={symbol_upper}) — retrieve the "
-            "   latest NSE corporate filings. Note any earnings, management "
-            "   changes, corporate actions, or regulatory disclosures.\n"
+            "   latest NSE corporate filings. Note earnings, management changes, "
+            "   corporate actions, or regulatory disclosures.\n"
             f"2. Call `gnews_search` (symbol={symbol_upper}, company_name={name!r}) "
-            "   — fetch recent news articles. Identify the dominant narrative "
-            "   (positive / negative / mixed) in financial media.\n"
+            "   — fetch recent news articles. Identify the dominant narrative.\n"
             f"3. Call `tavily_search` (symbol={symbol_upper}, company_name={name!r}) "
-            "   — deep-search for earnings commentary, analyst upgrades/downgrades, "
-            "   and any web content not covered by the news feed.\n"
-            "4. Synthesise all collected material:\n"
-            f"   a. Identify all material events from: {_MATERIAL_EVENTS}.\n"
-            "   b. Score **news_sentiment** (POSITIVE / NEGATIVE / NEUTRAL) based "
-            "      on NSE announcements and financial-media articles.\n"
-            "   c. Score **social_sentiment** (POSITIVE / NEGATIVE / NEUTRAL) "
-            "      based on retail/forum commentary found via Tavily.\n"
-            "   d. Compute an overall **score** in [-100, +100]: weight "
-            "      news_sentiment 70% (official sources are more reliable) and "
-            "      social_sentiment 30%. A material negative event (earnings miss, "
-            "      regulatory action) should push the score below -30 regardless "
-            "      of social chatter.\n"
-            "   e. List the top 3–5 **key_themes** as short phrases "
-            "      (e.g. 'Q3 earnings beat', 'CFO resignation', 'buyback announced').\n"
-            "   f. Set **headline_count** to the total number of distinct news "
-            "      items collected across all three sources.\n"
-        )
-
-        expected_output = (
-            "A valid SentimentResult JSON with fields: symbol, exchange, score, "
-            "news_sentiment, social_sentiment, headline_count, key_themes, "
-            "generated_at."
+            "   — deep-search for earnings commentary and analyst upgrades/downgrades.\n"
+            "4. Synthesise all collected material AND the whale-activity context:\n"
+            f"   a. Identify all material events: {_MATERIAL_EVENTS}.\n"
+            "   b. Score **news_sentiment** (POSITIVE/NEGATIVE/NEUTRAL) from filings "
+            "      and financial-media articles.\n"
+            "   c. Score **social_sentiment** (POSITIVE/NEGATIVE/NEUTRAL) from "
+            "      retail/forum commentary via Tavily.\n"
+            "   d. Set **whale_signal** (BULLISH/BEARISH/NEUTRAL) directly from the "
+            "      researcher's whale_signal finding. Copy the whale_activity lines "
+            "      from the researcher's report into the whale_activity list.\n"
+            "   e. Compute an overall **score** in [-100, +100]:\n"
+            "      • Base: news_sentiment 60% + social_sentiment 20%\n"
+            "      • Whale adjustment: BULLISH whale_signal → +20 pts; "
+            "        BEARISH → -20 pts; NEUTRAL → 0 pts\n"
+            "      • A material negative event (earnings miss, regulatory action) "
+            "        pushes score below -30 regardless of whale activity.\n"
+            "      • Multiple whales accumulating simultaneously adds +10 extra.\n"
+            "   f. List the top 3–5 **key_themes** as short phrases.\n"
+            "   g. Set **headline_count** to total distinct news items across all sources.\n"
         )
 
         return Task(
             description=description,
-            expected_output=expected_output,
+            expected_output=(
+                "A valid SentimentResult JSON with fields: symbol, exchange, score, "
+                "news_sentiment, social_sentiment, whale_signal, whale_activity, "
+                "headline_count, key_themes, generated_at."
+            ),
             agent=self.build(),
             output_pydantic=SentimentResult,
+            context=context or [],
+        )
+
+    # ------------------------------------------------------------------
+    # Crew factory — preferred entry point
+    # ------------------------------------------------------------------
+
+    def build_crew(self, symbol: str, company_name: str = "") -> Crew:
+        """Build the two-agent sequential crew for *symbol*.
+
+        Execution order:
+          1. WhaleResearcherAgent  — bulk/block deals + Tavily quotes
+          2. NewsSentimentAgent    — news + filings + whale context → SentimentResult
+
+        The SentimentResult is in ``crew.kickoff().tasks_output[1].pydantic``.
+
+        Args:
+            symbol:       NSE ticker without suffix.
+            company_name: Human-readable name (used in search queries).
+
+        Returns:
+            A :class:`crewai.Crew` ready to call ``.kickoff()``.
+        """
+        whale_task = self.build_whale_research_task(symbol, company_name)
+        analyst_task = self.build_task(symbol, company_name, context=[whale_task])
+
+        agents = [a for a in (whale_task.agent, analyst_task.agent) if a is not None]
+        return Crew(
+            agents=agents,
+            tasks=[whale_task, analyst_task],
+            process=Process.sequential,
+            verbose=False,
         )
