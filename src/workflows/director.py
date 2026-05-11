@@ -20,6 +20,7 @@ from typing import Any, Literal
 import structlog
 
 from src.config.llm_config import get_llm
+from src.models.intent import BuyIntent
 from src.models.portfolio import Portfolio
 from src.models.reports import FinalReport
 
@@ -31,6 +32,31 @@ _CLASSIFY_PROMPT = (
     "Respond with exactly one word: BUY or SELL.\n\n"
     "Request: {prompt}"
 )
+
+_INTENT_PROMPT = """\
+You are a stock screening assistant for Indian equity markets (NSE).
+Extract structured buy intent from the user's prompt.
+
+Valid sectors (use exact strings):
+  IT, Banking, FMCG, Pharma, Auto, NBFC, Insurance, Insurtech, Power,
+  Power Finance, Infra Finance, Metals, Steel, Mining, Cement, Chemicals,
+  Paints, Consumer Electricals, Textiles, Beverages, Retail, Diversified,
+  Capital Goods, Telecom, Infrastructure, Consumer Tech, Fintech, Logistics,
+  Healthcare, Oil & Gas, Agri
+
+Valid styles: growth, value, dividend, momentum, defensive, any
+
+Return a JSON object with these fields (omit or use null for unspecified):
+  sectors         — list of matching sector strings (empty list if none)
+  exclude_sectors — sectors to avoid (empty list if none)
+  max_price_inr   — maximum price per share in INR (null if not mentioned)
+  min_price_inr   — minimum price per share in INR (null if not mentioned)
+  style           — one of the valid styles above (default "any")
+  keywords        — 2-5 short phrases summarising the intent
+
+User prompt: {prompt}
+
+Respond with ONLY the JSON object, no explanation."""
 
 
 class WorkflowDirector:
@@ -77,6 +103,43 @@ class WorkflowDirector:
         except Exception as exc:
             log.warning("workflow_director.classify_failed", error=str(exc))
             return "BUY"
+
+    def extract_intent(self, prompt: str) -> BuyIntent:
+        """Parse *prompt* into a structured :class:`~src.models.intent.BuyIntent`.
+
+        Uses a single LLM call. Falls back to an unconstrained BuyIntent on
+        any failure so the workflow is never blocked.
+
+        Args:
+            prompt: Free-text user buy request.
+
+        Returns:
+            :class:`~src.models.intent.BuyIntent` with extracted constraints.
+        """
+        import json
+
+        full_prompt = _INTENT_PROMPT.format(prompt=prompt)
+        try:
+            response = self._llm.invoke(full_prompt)
+            text = (response.content if hasattr(response, "content") else str(response)).strip()
+            # Strip markdown code fences if present
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            data = json.loads(text)
+            intent = BuyIntent(**{k: v for k, v in data.items() if v is not None})
+            log.info(
+                "workflow_director.intent_extracted",
+                sectors=intent.sectors,
+                style=intent.style,
+                max_price=intent.max_price_inr,
+                min_price=intent.min_price_inr,
+            )
+            return intent
+        except Exception as exc:
+            log.warning("workflow_director.intent_failed", error=str(exc))
+            return BuyIntent()
 
     def parse_portfolio(self, path: str) -> Portfolio:
         """Load a :class:`~src.models.portfolio.Portfolio` from *path*.

@@ -95,7 +95,18 @@ class BuyerWorkflow:
         shortlist = scan_results.shortlist(_MAX_SHORTLIST)
         log.info("buyer_workflow.scan_done", shortlisted=len(shortlist))
 
-        # ── Step 2: Sentiment filter ──────────────────────────────────────
+        # ── Step 2: Semantic prompt filter ───────────────────────────────
+        if prompt:
+            from src.workflows.director import WorkflowDirector
+            intent = WorkflowDirector().extract_intent(prompt)
+            shortlist = self._filter_by_intent(shortlist, intent)
+            log.info("buyer_workflow.intent_filter", after=len(shortlist), style=intent.style)
+
+        if not shortlist:
+            log.warning("buyer_workflow.no_candidates_after_intent_filter")
+            return []
+
+        # ── Step 3: Sentiment filter ──────────────────────────────────────
         sentiment_passed = self._filter_by_sentiment(shortlist)
         to_analyse = sentiment_passed[:_MAX_DEEP_ANALYSE]
         log.info(
@@ -108,7 +119,7 @@ class BuyerWorkflow:
             log.warning("buyer_workflow.no_candidates_after_filter")
             return []
 
-        # ── Step 3: Batch 4-agent analysis (1 LLM call per agent type) ───────
+        # ── Step 4: Batch 4-agent analysis (1 LLM call per agent type) ───────
         raw_results = self._run_batch_analysis(to_analyse, available_cash)
 
         # ── Step 4: Score, build BuyCandidate objects, and rank ───────────
@@ -157,7 +168,109 @@ class BuyerWorkflow:
         )
 
     # ------------------------------------------------------------------
-    # Step 2: Sentiment filter
+    # Step 2: Semantic prompt filter
+    # ------------------------------------------------------------------
+
+    def _filter_by_intent(
+        self,
+        entries: list[ScanEntry],
+        intent: Any,
+    ) -> list[ScanEntry]:
+        """Apply BuyIntent constraints to narrow the scan shortlist.
+
+        Filters are applied in order: sector → price → style rerank.
+        If a filter would remove ALL candidates it is skipped so the
+        pipeline is never left with an empty list.
+
+        Args:
+            entries: Scanner shortlist sorted by momentum (descending).
+            intent:  :class:`~src.models.intent.BuyIntent` from the prompt.
+
+        Returns:
+            Filtered (and possibly reranked) list of :class:`ScanEntry`.
+        """
+        result = list(entries)
+
+        # ── Sector whitelist ─────────────────────────────────────────────
+        if intent.sectors:
+            filtered = [
+                e for e in result
+                if any(s.lower() in e.sector.lower() for s in intent.sectors)
+            ]
+            if filtered:
+                result = filtered
+            else:
+                log.warning(
+                    "buyer_workflow.intent_sector_no_match",
+                    sectors=intent.sectors,
+                    msg="Skipping sector filter — no stocks matched",
+                )
+
+        # ── Sector blacklist ─────────────────────────────────────────────
+        if intent.exclude_sectors:
+            filtered = [
+                e for e in result
+                if not any(s.lower() in e.sector.lower() for s in intent.exclude_sectors)
+            ]
+            if filtered:
+                result = filtered
+
+        # ── Price range ──────────────────────────────────────────────────
+        if intent.max_price_inr is not None:
+            filtered = [e for e in result if e.last_price <= intent.max_price_inr]
+            if filtered:
+                result = filtered
+            else:
+                log.warning(
+                    "buyer_workflow.intent_price_no_match",
+                    max_price=intent.max_price_inr,
+                    msg="Skipping max_price filter — no stocks matched",
+                )
+
+        if intent.min_price_inr is not None:
+            filtered = [e for e in result if e.last_price >= intent.min_price_inr]
+            if filtered:
+                result = filtered
+
+        # ── Style rerank ─────────────────────────────────────────────────
+        # Does not drop stocks — just changes order before the sentiment gate.
+        _DEFENSIVE_SECTORS = {"FMCG", "Pharma", "IT", "Healthcare", "Consumer Electricals"}
+        _CYCLICAL_SECTORS   = {"Steel", "Metals", "Mining", "Agri", "Oil & Gas"}
+
+        if intent.style == "momentum":
+            # Already sorted by momentum — nothing to do
+            pass
+
+        elif intent.style == "defensive":
+            # Prefer low-beta proxies: boost defensive sectors, penalise cyclicals
+            def _defensive_score(e: ScanEntry) -> float:
+                bonus = 20.0 if e.sector in _DEFENSIVE_SECTORS else 0.0
+                penalty = -15.0 if e.sector in _CYCLICAL_SECTORS else 0.0
+                return e.momentum_1m_pct + bonus + penalty
+            result.sort(key=_defensive_score, reverse=True)
+
+        elif intent.style == "value":
+            # Prefer lower momentum (less overbought) — avoids chasing tops
+            result.sort(key=lambda e: e.momentum_1m_pct)
+
+        elif intent.style == "growth":
+            # Keep momentum sort but boost tech/NBFC/consumer sectors
+            _GROWTH_SECTORS = {"IT", "NBFC", "Consumer Tech", "Pharma", "Fintech", "Insurtech"}
+            def _growth_score(e: ScanEntry) -> float:
+                return e.momentum_1m_pct + (10.0 if e.sector in _GROWTH_SECTORS else 0.0)
+            result.sort(key=_growth_score, reverse=True)
+
+        elif intent.style == "dividend":
+            # Prefer PSUs and large-cap stable sectors known for dividends
+            _DIV_SECTORS = {"FMCG", "Power", "Power Finance", "Mining", "Oil & Gas", "Steel"}
+            def _div_score(e: ScanEntry) -> float:
+                return e.momentum_1m_pct + (10.0 if e.sector in _DIV_SECTORS else 0.0)
+            result.sort(key=_div_score, reverse=True)
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Step 3: Sentiment filter
     # ------------------------------------------------------------------
 
     def _filter_by_sentiment(self, entries: list[ScanEntry]) -> list[ScanEntry]:
