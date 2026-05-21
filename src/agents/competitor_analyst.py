@@ -168,6 +168,13 @@ class CompetitorAnalysisAgent(BaseAgent):
             "  moat_score [0-100]: rank_3m=1 → +20, 3m_ret > 0 → +15, "
             "mcap_rank=1 → +15, mom_1m > 5% → +20, peer_count > 3 → +10, "
             "positive 1m and 3m returns → +20. Deduct for negative returns.\n\n"
+            "IMPORTANT — use these EXACT field names in your output JSON (not alternatives):\n"
+            "  'moat_score'        ← the computed 0-100 moat score\n"
+            "  'relative_strength' ← the computed -100 to +100 value\n"
+            "  'market_position'   ← exactly LEADER, CHALLENGER, FOLLOWER, or NICHE\n"
+            "  'sector'            ← use the sector column value\n"
+            "  'peers'             ← a JSON list of NSE ticker strings "
+            "(split the comma-separated peers column, e.g. [\"TCS\", \"INFY\"])\n\n"
             f"Return CompetitiveAnalysisBatch with exactly {n} CompetitiveAnalysis objects "
             "in the same order as the table."
         )

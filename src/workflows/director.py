@@ -94,8 +94,7 @@ class WorkflowDirector:
         """
         full_prompt = _CLASSIFY_PROMPT.format(prompt=prompt)
         try:
-            response = self._llm.invoke(full_prompt)
-            text = (response.content if hasattr(response, "content") else str(response)).strip().upper()
+            text = self._llm.call([{"role": "user", "content": full_prompt}]).strip().upper()
             log.debug("workflow_director.classify_intent", prompt=prompt[:80], response=text)
             if "SELL" in text:
                 return "SELL"
@@ -120,8 +119,7 @@ class WorkflowDirector:
 
         full_prompt = _INTENT_PROMPT.format(prompt=prompt)
         try:
-            response = self._llm.invoke(full_prompt)
-            text = (response.content if hasattr(response, "content") else str(response)).strip()
+            text = self._llm.call([{"role": "user", "content": full_prompt}]).strip()
             # Strip markdown code fences if present
             if text.startswith("```"):
                 text = text.split("```")[1]

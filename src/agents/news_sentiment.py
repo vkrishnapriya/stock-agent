@@ -286,13 +286,14 @@ class NewsSentimentAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def build_crew(self, symbol: str, company_name: str = "") -> Crew:
-        """Build the two-agent sequential crew for *symbol*.
+        """Build a single-agent, tool-free crew using pre-fetched data.
 
-        Execution order:
-          1. WhaleResearcherAgent  — bulk/block deals + Tavily quotes
-          2. NewsSentimentAgent    — news + filings + whale context → SentimentResult
+        All data sources (whale tracker, NSE announcements, GNews, Tavily) are
+        fetched in parallel Python threads before the LLM call so the agent
+        never needs a ReAct tool-use loop.  This avoids the
+        ``assistant message prefill`` error on Claude Sonnet 4.6+.
 
-        The SentimentResult is in ``crew.kickoff().tasks_output[1].pydantic``.
+        The SentimentResult is in ``crew.kickoff().tasks_output[0].pydantic``.
 
         Args:
             symbol:       NSE ticker without suffix.
@@ -301,13 +302,108 @@ class NewsSentimentAgent(BaseAgent):
         Returns:
             A :class:`crewai.Crew` ready to call ``.kickoff()``.
         """
-        whale_task = self.build_whale_research_task(symbol, company_name)
-        analyst_task = self.build_task(symbol, company_name, context=[whale_task])
+        from crewai import Agent as _Agent
 
-        agents = [a for a in (whale_task.agent, analyst_task.agent) if a is not None]
+        symbol_upper = symbol.strip().upper()
+        name = company_name.strip() or symbol_upper
+
+        context_block = self._gather_context(symbol_upper, name)
+
+        batch_agent = _Agent(
+            role=_ROLE,
+            goal=_GOAL,
+            backstory=_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[],
+            **self._agent_defaults(),
+        )
+
+        description = (
+            f"Analyse the pre-fetched data below and produce a SentimentResult "
+            f"for **{symbol_upper}** ({name}).\n\n"
+            f"{context_block}\n\n"
+            "Using only the data above:\n"
+            "1. Score **news_sentiment** (POSITIVE/NEGATIVE/NEUTRAL) from NSE "
+            "   announcements and news articles.\n"
+            "2. Score **social_sentiment** (POSITIVE/NEGATIVE/NEUTRAL) from web "
+            "   search results.\n"
+            "3. Set **whale_signal** (BULLISH/BEARISH/NEUTRAL) from the whale "
+            "   activity section.\n"
+            "4. Copy whale activity summary lines into **whale_activity** list.\n"
+            "5. Compute overall **score** in [-100, +100]:\n"
+            "   • Base: news_sentiment (POSITIVE=+50, NEUTRAL=0, NEGATIVE=-50) × 60%\n"
+            "     + social_sentiment (same scale) × 20%\n"
+            "   • Whale: BULLISH → +20 pts, BEARISH → -20 pts, NEUTRAL → 0\n"
+            "   • Material negative event (earnings miss, regulatory action) → "
+            "     push score below -30 regardless of whale activity.\n"
+            "   • Multiple whales acting in same direction simultaneously → +10 extra.\n"
+            "6. List 3–5 **key_themes** as short phrases.\n"
+            "7. Set **headline_count** to total distinct items across all sources.\n"
+        )
+
+        task = Task(
+            description=description,
+            expected_output=(
+                "A valid SentimentResult JSON with fields: symbol, exchange, score, "
+                "news_sentiment, social_sentiment, whale_signal, whale_activity, "
+                "headline_count, key_themes, generated_at."
+            ),
+            agent=batch_agent,
+            output_pydantic=SentimentResult,
+        )
+
         return Crew(
-            agents=agents,
-            tasks=[whale_task, analyst_task],
+            agents=[batch_agent],
+            tasks=[task],
             process=Process.sequential,
             verbose=False,
+        )
+
+    def _gather_context(self, symbol: str, name: str) -> str:
+        """Pre-fetch all data sources in parallel and return a formatted block."""
+        import json
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _whale() -> str:
+            try:
+                return WhaleTrackerTool()._run(symbol=symbol)
+            except Exception as exc:
+                return json.dumps({
+                    "net_signal": "NEUTRAL", "deal_count": 0,
+                    "summary": [f"Data unavailable: {exc}"],
+                })
+
+        def _announcements() -> str:
+            try:
+                return NSEAnnouncementTool()._run(symbol=symbol)
+            except Exception as exc:
+                return f"Unavailable: {exc}"
+
+        def _news() -> str:
+            try:
+                return GNewsAPITool()._run(symbol=symbol, company_name=name)
+            except Exception as exc:
+                return f"Unavailable: {exc}"
+
+        def _tavily() -> str:
+            try:
+                return TavilySearchTool()._run(symbol=symbol, company_name=name)
+            except Exception as exc:
+                return f"Unavailable: {exc}"
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            whale_fut = pool.submit(_whale)
+            ann_fut   = pool.submit(_announcements)
+            news_fut  = pool.submit(_news)
+            tav_fut   = pool.submit(_tavily)
+
+        return (
+            "### Whale / Super-Investor Activity (NSE Bulk & Block Deals)\n"
+            f"{whale_fut.result()}\n\n"
+            "### NSE Corporate Announcements\n"
+            f"{ann_fut.result()}\n\n"
+            "### Recent News (GNews)\n"
+            f"{news_fut.result()}\n\n"
+            "### Web Search (Tavily)\n"
+            f"{tav_fut.result()}\n"
         )

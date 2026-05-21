@@ -294,8 +294,8 @@ class BuyerWorkflow:
             crew = NewsSentimentAgent().build_crew(symbol=symbol)
             result = crew.kickoff()
             outputs = getattr(result, "tasks_output", []) or []
-            # Task 0 = whale researcher (plain text), Task 1 = analyst (SentimentResult)
-            return _pydantic(outputs, 1)
+            # Single-task no-tool crew — SentimentResult is at index 0
+            return _pydantic(outputs, 0)
         except Exception as exc:
             log.warning("buyer_workflow.sentiment_failed", symbol=symbol, error=str(exc))
             return None

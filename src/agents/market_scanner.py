@@ -61,12 +61,74 @@ NIFTY100_SYMBOLS: list[str] = NIFTY50_SYMBOLS + [
     "CHOLAFIN", "MUTHOOTFIN", "BAJAJHLDNG", "LICHSGFIN", "SHRIRAMFIN",
 ]
 
+NIFTYMIDCAP50_SYMBOLS: list[str] = [
+    # IT & Technology
+    "LTIM", "LTTS", "COFORGE", "PERSISTENT", "TATAELXSI", "MPHASIS",
+    # Finance & NBFC
+    "ABCAPITAL", "MCX", "CAMS", "SUNDARMFIN", "CANFINHOME", "POONAWALLA",
+    # Pharma
+    "ALKEM", "LUPIN", "LAURUSLABS", "TORNTPHARM", "ZYDUSLIFE", "GLENMARK",
+    # Auto & Components
+    "BALKRISIND", "BHARATFORG", "TIINDIA", "SONACOMS", "EXIDEIND",
+    # Consumer & FMCG
+    "EMAMILTD", "RADICO", "CROMPTON", "BATAINDIA", "JUBLFOOD", "PVRINOX",
+    # Capital Goods & Defence
+    "BEL", "HAL", "THERMAX", "CUMMINSIND", "BOSCHLTD",
+    # Chemicals
+    "SRF", "DEEPAKNTR", "PIIND",
+    # Real Estate
+    "GODREJPROP", "PHOENIXLTD", "OBEROIRLTY",
+    # Infra & Engineering
+    "POLYCAB", "KEI", "AIAENG",
+    # Healthcare Services
+    "MAXHEALTH", "LALPATHLAB", "SYNGENE",
+    # Consumer Tech
+    "NAUKRI", "IRCTC",
+    # Diversified
+    "TATAPOWER", "TATACHEM",
+]
+
+NIFTYMIDCAP150_SYMBOLS: list[str] = NIFTYMIDCAP50_SYMBOLS + [
+    # Consumer & Retail
+    "KANSAINER", "KAJARIACER", "ASTRAL", "SUPREMEIND", "VGUARD", "RELAXO",
+    "TRENT", "BATAINDIA", "ABFRL",
+    # Capital Goods & Industrials
+    "ELGIEQUIP", "GRINDWELL", "BHEL", "NCC", "ESCORTS", "UNOMINDA",
+    # Pharma & Diagnostics
+    "NATCOPHARM", "AJANTPHARM", "APLLTD", "METROPOLIS",
+    # Specialty Chemicals
+    "CLEAN", "FLUOROCHEM", "NAVINFLUOR", "SOLARINDS",
+    # Hotels & Hospitality
+    "INDHOTEL", "LEMONTREE",
+    # IT & Fintech
+    "TATACOMM", "OFSS", "KFINTECH", "ZENSAR",
+    # Energy & Gas
+    "PETRONET", "GSPL", "CESC", "JSWENERGY",
+    # Real Estate
+    "PRESTIGE", "BRIGADE",
+    # Finance & NBFC
+    "MANAPPURAM", "CREDITACC", "IIFL",
+    # Auto
+    "MRF",
+    # Electronics Manufacturing
+    "DIXON",
+    # Consumer Tech & Ecommerce
+    "INDIAMART", "AFFLE",
+    # Infrastructure & Roads
+    "KNRCON", "RVNL",
+    # Logistics
+    "BLUEDART",
+    # Media
+    "ZEEL", "SUNTV",
+]
+
 _UNIVERSES: dict[str, list[str]] = {
-    "NIFTY50": NIFTY50_SYMBOLS,
-    "NIFTY100": NIFTY100_SYMBOLS,
-    # NIFTY500 falls back to NIFTY100 in Phase 1 (full 500-symbol download
-    # is too slow for real-time use; Phase 2 will use NSE bhavcopy instead).
-    "NIFTY500": NIFTY100_SYMBOLS,
+    "NIFTY50":        NIFTY50_SYMBOLS,
+    "NIFTY100":       NIFTY100_SYMBOLS,
+    "NIFTYMIDCAP50":  NIFTYMIDCAP50_SYMBOLS,
+    "NIFTYMIDCAP150": NIFTYMIDCAP150_SYMBOLS,
+    # NIFTY500 = large-cap + mid-cap combined universe
+    "NIFTY500":       NIFTY100_SYMBOLS + NIFTYMIDCAP150_SYMBOLS,
 }
 
 _SECTOR_MAP: dict[str, str] = {
@@ -108,6 +170,47 @@ _SECTOR_MAP: dict[str, str] = {
     "PAYTM": "Fintech",           "POLICYBZR": "Insurtech",    "DELHIVERY": "Logistics",
     "CHOLAFIN": "NBFC",           "MUTHOOTFIN": "NBFC",        "BAJAJHLDNG": "NBFC",
     "LICHSGFIN": "NBFC",          "SHRIRAMFIN": "NBFC",
+    # ── Nifty Midcap 50 ─────────────────────────────────────────────────
+    "LTIM": "IT",           "LTTS": "IT",            "COFORGE": "IT",
+    "PERSISTENT": "IT",     "TATAELXSI": "IT",       "MPHASIS": "IT",
+    "ABCAPITAL": "NBFC",    "MCX": "Fintech",        "CAMS": "Fintech",
+    "SUNDARMFIN": "NBFC",   "CANFINHOME": "NBFC",    "POONAWALLA": "NBFC",
+    "ALKEM": "Pharma",      "LUPIN": "Pharma",       "LAURUSLABS": "Pharma",
+    "TORNTPHARM": "Pharma", "ZYDUSLIFE": "Pharma",   "GLENMARK": "Pharma",
+    "BALKRISIND": "Auto",   "BHARATFORG": "Auto",    "TIINDIA": "Auto",
+    "SONACOMS": "Auto",     "EXIDEIND": "Auto",
+    "EMAMILTD": "FMCG",     "RADICO": "Beverages",   "CROMPTON": "Consumer Electricals",
+    "BATAINDIA": "Consumer","JUBLFOOD": "FMCG",      "PVRINOX": "Media",
+    "BEL": "Defence",       "HAL": "Defence",        "THERMAX": "Capital Goods",
+    "CUMMINSIND": "Capital Goods", "BOSCHLTD": "Auto",
+    "SRF": "Chemicals",     "DEEPAKNTR": "Chemicals","PIIND": "Chemicals",
+    "GODREJPROP": "Real Estate","PHOENIXLTD": "Real Estate","OBEROIRLTY": "Real Estate",
+    "POLYCAB": "Cables & Wires","KEI": "Cables & Wires","AIAENG": "Capital Goods",
+    "MAXHEALTH": "Healthcare","LALPATHLAB": "Healthcare","SYNGENE": "Pharma",
+    "NAUKRI": "Consumer Tech","IRCTC": "Consumer Tech",
+    "TATAPOWER": "Power",   "TATACHEM": "Chemicals",
+    # ── Nifty Midcap 150 additions ───────────────────────────────────────
+    "KANSAINER": "Paints",      "KAJARIACER": "Tiles",      "ASTRAL": "Pipes",
+    "SUPREMEIND": "Plastics",   "VGUARD": "Consumer Electricals","RELAXO": "Consumer",
+    "TRENT": "Retail",          "ABFRL": "Textiles",
+    "ELGIEQUIP": "Capital Goods","GRINDWELL": "Capital Goods","BHEL": "Capital Goods",
+    "NCC": "Infrastructure",    "ESCORTS": "Auto",          "UNOMINDA": "Auto",
+    "NATCOPHARM": "Pharma",     "AJANTPHARM": "Pharma",     "APLLTD": "Pharma",
+    "METROPOLIS": "Healthcare",
+    "CLEAN": "Chemicals",       "FLUOROCHEM": "Chemicals",
+    "NAVINFLUOR": "Chemicals",  "SOLARINDS": "Defence",
+    "INDHOTEL": "Hospitality",  "LEMONTREE": "Hospitality",
+    "TATACOMM": "Telecom",      "OFSS": "IT",               "KFINTECH": "Fintech",
+    "ZENSAR": "IT",
+    "PETRONET": "Oil & Gas",    "GSPL": "Oil & Gas",        "CESC": "Power",
+    "JSWENERGY": "Power",
+    "PRESTIGE": "Real Estate",  "BRIGADE": "Real Estate",
+    "MANAPPURAM": "NBFC",       "CREDITACC": "NBFC",        "IIFL": "NBFC",
+    "MRF": "Auto",              "DIXON": "Consumer Electronics",
+    "INDIAMART": "Consumer Tech","AFFLE": "Consumer Tech",
+    "KNRCON": "Infrastructure", "RVNL": "Infrastructure",
+    "BLUEDART": "Logistics",
+    "ZEEL": "Media",            "SUNTV": "Media",
 }
 
 
