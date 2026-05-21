@@ -34,7 +34,7 @@ from src.models.signals import (
     CompetitiveAnalysis,
     FundamentalScore,
     RiskAssessment,
-    SentimentResult,
+    SentimentResultBatch,
     TechnicalSignal,
 )
 
@@ -274,10 +274,21 @@ class BuyerWorkflow:
     # ------------------------------------------------------------------
 
     def _filter_by_sentiment(self, entries: list[ScanEntry]) -> list[ScanEntry]:
-        """Run NewsSentimentAgent for each entry; drop those with score < threshold."""
+        """Run a single batch NewsSentimentAgent call for all entries at once.
+
+        All data is pre-fetched in parallel, then scored in one LLM call
+        instead of one call per stock. Falls back to passing all entries
+        through if the batch call fails.
+        """
+        batch = self._run_sentiment_batch(entries)
+        if batch is None:
+            log.warning("buyer_workflow.sentiment_batch_failed_passthrough")
+            return entries
+
+        sentiment_map = {r.symbol: r for r in batch.results}
         passed: list[ScanEntry] = []
         for entry in entries:
-            sentiment = self._run_sentiment(entry.symbol)
+            sentiment = sentiment_map.get(entry.symbol)
             if sentiment is None or sentiment.score >= _SENTIMENT_THRESHOLD:
                 passed.append(entry)
             else:
@@ -288,16 +299,15 @@ class BuyerWorkflow:
                 )
         return passed
 
-    def _run_sentiment(self, symbol: str) -> SentimentResult | None:
-        """Run the two-agent whale-researcher + analyst crew for *symbol*."""
+    def _run_sentiment_batch(self, entries: list[ScanEntry]) -> SentimentResultBatch | None:
+        """Fire a single batch sentiment crew for all *entries*."""
         try:
-            crew = NewsSentimentAgent().build_crew(symbol=symbol)
+            crew = NewsSentimentAgent().build_batch_crew(entries)
             result = crew.kickoff()
             outputs = getattr(result, "tasks_output", []) or []
-            # Single-task no-tool crew — SentimentResult is at index 0
             return _pydantic(outputs, 0)
         except Exception as exc:
-            log.warning("buyer_workflow.sentiment_failed", symbol=symbol, error=str(exc))
+            log.warning("buyer_workflow.sentiment_batch_error", error=str(exc))
             return None
 
     # ------------------------------------------------------------------

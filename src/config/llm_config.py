@@ -57,6 +57,11 @@ def _build_claude() -> Any:
             "ANTHROPIC_API_KEY is not set. Add it to .env.local or your environment."
         )
 
+    # pydantic_settings reads .env.local into Settings fields but does NOT write to
+    # os.environ. CrewAI's internal pydantic-conversion retry calls LiteLLM directly
+    # and checks os.environ for the key — ensure it's always present there.
+    os.environ["ANTHROPIC_API_KEY"] = api_key
+
     model = os.environ.get("CLAUDE_MODEL", _CLAUDE_DEFAULT_MODEL)
     log.info("llm.configured", provider="claude", model=model)
     return LLM(
@@ -79,6 +84,7 @@ def _build_gemini() -> Any:
             "GEMINI_API_KEY is not set. Add it to .env.local or your environment."
         )
 
+    os.environ["GEMINI_API_KEY"] = api_key
     log.info("llm.configured", provider="gemini", model=_GEMINI_MODEL)
     return LLM(
         model=_GEMINI_MODEL,
@@ -100,6 +106,7 @@ def _build_groq() -> Any:
             "GROQ_API_KEY is not set. Add it to .env.local or your environment."
         )
 
+    os.environ["GROQ_API_KEY"] = api_key
     model = os.environ.get("GROQ_MODEL", _GROQ_DEFAULT_MODEL)
     log.info("llm.configured", provider="groq", model=model)
     return LLM(

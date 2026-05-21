@@ -31,7 +31,7 @@ from typing import Any
 from crewai import Agent, Crew, Process, Task
 
 from src.agents.base_agent import BaseAgent
-from src.models.signals import SentimentResult
+from src.models.signals import SentimentResult, SentimentResultBatch
 from src.tools.news.gnews_tool import GNewsAPITool
 from src.tools.news.nse_announcements import NSEAnnouncementTool
 from src.tools.news.tavily_tool import TavilySearchTool
@@ -358,6 +358,134 @@ class NewsSentimentAgent(BaseAgent):
             process=Process.sequential,
             verbose=False,
         )
+
+    def build_batch_crew(self, entries: list[Any]) -> Crew:
+        """Single LLM call that scores ALL symbols in *entries* at once.
+
+        Pre-fetches whale, NSE, GNews, and Tavily data for every stock in
+        parallel (one ThreadPoolExecutor across all stocks × 4 sources), then
+        embeds the results as numbered per-stock sections and asks the LLM to
+        return a :class:`~src.models.signals.SentimentResultBatch`.
+
+        This replaces the previous per-stock ``build_crew`` loop, reducing
+        LLM calls from N → 1.
+
+        Args:
+            entries: List of :class:`~src.models.scan.ScanEntry` (or any object
+                     with ``.symbol`` and optionally ``.sector`` attributes).
+
+        Returns:
+            A :class:`crewai.Crew` ready to call ``.kickoff()``.
+        """
+        from crewai import Agent as _Agent
+
+        symbols = [e.symbol.strip().upper() for e in entries]
+        context_block = self._gather_all_contexts(symbols)
+        n = len(symbols)
+
+        batch_agent = _Agent(
+            role=_ROLE,
+            goal=_GOAL,
+            backstory=_BACKSTORY,
+            llm=self._get_llm(),
+            tools=[],
+            **self._agent_defaults(),
+        )
+
+        description = (
+            f"Analyse the pre-fetched data below for {n} NSE stocks and produce "
+            f"a SentimentResult for each.\n\n"
+            f"{context_block}\n\n"
+            "For EACH stock section above:\n"
+            "1. Score **news_sentiment** (POSITIVE/NEGATIVE/NEUTRAL) from NSE "
+            "   announcements and news articles.\n"
+            "2. Score **social_sentiment** (POSITIVE/NEGATIVE/NEUTRAL) from web "
+            "   search results.\n"
+            "3. Set **whale_signal** (BULLISH/BEARISH/NEUTRAL) from the whale "
+            "   activity section.\n"
+            "4. Copy whale activity summary lines into **whale_activity** list.\n"
+            "5. Compute overall **score** in [-100, +100]:\n"
+            "   • Base: news_sentiment (POSITIVE=+50, NEUTRAL=0, NEGATIVE=-50) × 60%\n"
+            "     + social_sentiment (same scale) × 20%\n"
+            "   • Whale: BULLISH → +20 pts, BEARISH → -20 pts, NEUTRAL → 0\n"
+            "   • Material negative event (earnings miss, regulatory action) → "
+            "     push score below -30 regardless of whale activity.\n"
+            "   • Multiple whales acting in same direction simultaneously → +10 extra.\n"
+            "6. List 3–5 **key_themes** as short phrases.\n"
+            "7. Set **headline_count** to total distinct items across all sources.\n\n"
+            f"Return SentimentResultBatch with exactly {n} SentimentResult objects "
+            f"in this order: {', '.join(symbols)}."
+        )
+
+        task = Task(
+            description=description,
+            expected_output=(
+                f"SentimentResultBatch JSON with a 'results' list of {n} "
+                "SentimentResult objects, one per symbol in the order listed."
+            ),
+            agent=batch_agent,
+            output_pydantic=SentimentResultBatch,
+        )
+
+        return Crew(
+            agents=[batch_agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=False,
+        )
+
+    def _gather_all_contexts(self, symbols: list[str]) -> str:
+        """Pre-fetch all data for all *symbols* in parallel and return formatted sections.
+
+        Fires up to ``len(symbols) × 4`` concurrent threads — one per
+        (symbol, source) pair — so total fetch time equals the slowest
+        single request rather than the sum of all requests.
+        """
+        import json
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _fetch(symbol: str, source: str) -> tuple[str, str, str]:
+            """Return (symbol, source, result_text)."""
+            try:
+                if source == "whale":
+                    return symbol, source, WhaleTrackerTool()._run(symbol=symbol)
+                if source == "ann":
+                    return symbol, source, NSEAnnouncementTool()._run(symbol=symbol)
+                if source == "news":
+                    return symbol, source, GNewsAPITool()._run(symbol=symbol, company_name=symbol)
+                if source == "tavily":
+                    return symbol, source, TavilySearchTool()._run(symbol=symbol, company_name=symbol)
+            except Exception as exc:
+                fallback = json.dumps({"net_signal": "NEUTRAL", "summary": [str(exc)]}) \
+                    if source == "whale" else f"Unavailable: {exc}"
+                return symbol, source, fallback
+            return symbol, source, "Unavailable"
+
+        sources = ["whale", "ann", "news", "tavily"]
+        data: dict[str, dict[str, str]] = {s: {} for s in symbols}
+
+        with ThreadPoolExecutor(max_workers=min(len(symbols) * 4, 20)) as pool:
+            futures = [
+                pool.submit(_fetch, sym, src)
+                for sym in symbols
+                for src in sources
+            ]
+            for fut in as_completed(futures):
+                sym, src, text = fut.result()
+                data[sym][src] = text
+
+        sections = []
+        for i, sym in enumerate(symbols, 1):
+            d = data[sym]
+            sections.append(
+                f"## Stock {i}: {sym}\n"
+                f"### Whale / Super-Investor Activity\n{d.get('whale', 'Unavailable')}\n\n"
+                f"### NSE Corporate Announcements\n{d.get('ann', 'Unavailable')}\n\n"
+                f"### Recent News (GNews)\n{d.get('news', 'Unavailable')}\n\n"
+                f"### Web Search (Tavily)\n{d.get('tavily', 'Unavailable')}"
+            )
+
+        return "\n\n---\n\n".join(sections)
 
     def _gather_context(self, symbol: str, name: str) -> str:
         """Pre-fetch all data sources in parallel and return a formatted block."""

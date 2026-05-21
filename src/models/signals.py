@@ -172,3 +172,8 @@ class RiskAssessmentBatch(BaseModel):
 class CompetitiveAnalysisBatch(BaseModel):
     """Batch output of CompetitorAnalysisAgent — one analysis per symbol."""
     analyses: list[CompetitiveAnalysis]
+
+
+class SentimentResultBatch(BaseModel):
+    """Batch output of NewsSentimentAgent — one result per symbol."""
+    results: list[SentimentResult]
