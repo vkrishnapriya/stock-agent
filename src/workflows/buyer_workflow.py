@@ -419,18 +419,59 @@ class BuyerWorkflow:
         if composite < 40.0:
             return None
 
-        # Entry zone: support → support + 2%
-        support = technical.support_level_inr if technical else last_price * 0.97
-        entry_lower = round(support, 2)
-        entry_upper = round(support * 1.02, 2)
+        # ── Raw technical levels ──────────────────────────────────────────────
+        support    = technical.support_level_inr    if technical else last_price * 0.95
+        resistance = technical.resistance_level_inr if technical else last_price * 1.15
+        rsi        = technical.rsi                  if technical else 50.0
+        vol_signal = technical.volume_signal        if technical else "NORMAL"
 
-        # Stop-loss: 3% below support (must be < entry_lower)
-        stop = risk.suggested_stop_loss_inr if risk else round(entry_lower * 0.97, 2)
-        stop = round(min(stop, entry_lower * 0.97), 2)
+        # ── Step 1: Determine entry mode (see docs/entry_point_calculation_plan.md) ──
+        #
+        # BREAKOUT  — price at/above resistance with HIGH volume surge
+        # PULLBACK  — price within 3% of support with RSI < 45 (oversold pullback)
+        # CURRENT_PRICE — default: buy at current market price
+        if vol_signal == "HIGH" and last_price >= resistance * 0.98:
+            entry_lower = round(last_price, 2)
+            entry_upper = round(last_price * 1.005, 2)
+            entry_type  = "BREAKOUT"
+        elif rsi < 45 and last_price <= support * 1.03:
+            entry_lower = round(support, 2)
+            entry_upper = round(support * 1.02, 2)
+            entry_type  = "PULLBACK"
+        else:
+            entry_lower = round(last_price, 2)
+            entry_upper = round(last_price * 1.005, 2)
+            entry_type  = "CURRENT_PRICE"
 
-        # Target: resistance, or at least 5% above entry_upper
-        resistance = technical.resistance_level_inr if technical else last_price * 1.10
-        target = round(max(resistance, entry_upper * 1.05), 2)
+        # ── Step 2: Stop-loss (priority order, hard cap at 8% below entry) ───
+        rm_stop = risk.suggested_stop_loss_inr if risk else None
+        if rm_stop and 0 < rm_stop < entry_lower and rm_stop >= entry_lower * 0.92:
+            stop = round(rm_stop, 2)
+        elif support < entry_lower:
+            stop = round(max(support, entry_lower * 0.92), 2)  # cap at 8% below
+        else:
+            stop = round(entry_lower * 0.95, 2)  # fallback: 5% below entry
+
+        # ── Step 3: Target with minimum 2:1 Reward:Risk enforcement ──────────
+        # Reward:Risk = (target − entry) / (entry − stop)
+        # Minimum acceptable Reward:Risk = 2:1, so:
+        #   target >= entry_upper + 2 × (entry_lower − stop)
+        risk_per_share  = entry_lower - stop
+        min_target_rr2  = round(entry_upper + 2.0 * risk_per_share, 2)
+        target          = round(max(resistance, min_target_rr2), 2)
+
+        # ── Step 4: Reject if realised Reward:Risk < 1.5:1 ───────────────────
+        reward = target - entry_upper
+        risk_amt = entry_lower - stop
+        if risk_amt <= 0 or (reward / risk_amt) < 1.5:
+            log.info(
+                "buyer_workflow.candidate_rejected_rr",
+                symbol=entry.symbol,
+                reward=round(reward, 2),
+                risk=round(risk_amt, 2),
+                rr=round(reward / risk_amt, 2) if risk_amt > 0 else 0,
+            )
+            return None
 
         # Suggested allocation: RM position size or proportional to composite
         if risk and risk.position_size_pct > 0:
@@ -447,6 +488,7 @@ class BuyerWorkflow:
                 entry_zone=EntryZone(lower_inr=entry_lower, upper_inr=entry_upper),
                 stop_loss_inr=stop,
                 target_inr=target,
+                entry_type=entry_type,
             )
         except Exception as exc:
             log.warning(

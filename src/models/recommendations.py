@@ -60,6 +60,15 @@ class BuyCandidate(BaseModel):
     entry_zone: EntryZone
     stop_loss_inr: float = Field(gt=0.0, description="Stop-loss price in INR")
     target_inr: float = Field(gt=0.0, description="Price target in INR")
+    entry_type: Literal["BREAKOUT", "PULLBACK", "CURRENT_PRICE"] = Field(
+        default="CURRENT_PRICE",
+        description=(
+            "How the entry zone was derived: "
+            "BREAKOUT=price at resistance with high volume, "
+            "PULLBACK=price near support with RSI<45, "
+            "CURRENT_PRICE=default market-price entry"
+        ),
+    )
     generated_at: datetime = Field(default_factory=_now_ist)
 
     @field_validator("symbol")

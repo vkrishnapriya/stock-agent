@@ -198,20 +198,32 @@ def buy(
     table = Table(title="Buy Candidates (ranked)", show_header=True, header_style="bold magenta")
     table.add_column("Rank", justify="right")
     table.add_column("Symbol", style="cyan")
+    table.add_column("Entry Type")
     table.add_column("Score", justify="right")
     table.add_column("Entry Zone Rs", justify="right")
     table.add_column("Stop Rs", justify="right")
     table.add_column("Target Rs", justify="right")
+    table.add_column("Reward:Risk", justify="right")
     table.add_column("Allocation Rs", justify="right")
 
     for i, c in enumerate(candidates, 1):
+        reward = c.target_inr - c.entry_zone.upper_inr
+        risk   = c.entry_zone.lower_inr - c.stop_loss_inr
+        rr     = reward / risk if risk > 0 else 0
+        entry_type_colour = {
+            "BREAKOUT":     "green",
+            "PULLBACK":     "yellow",
+            "CURRENT_PRICE": "cyan",
+        }.get(c.entry_type, "white")
         table.add_row(
             str(i),
             c.symbol,
+            f"[{entry_type_colour}]{c.entry_type}[/{entry_type_colour}]",
             f"{c.score:.1f}",
             f"{c.entry_zone.lower_inr:,.0f}–{c.entry_zone.upper_inr:,.0f}",
             f"{c.stop_loss_inr:,.0f}",
             f"{c.target_inr:,.0f}",
+            f"{rr:.1f}:1",
             f"{c.suggested_allocation_inr:,.0f}",
         )
 
