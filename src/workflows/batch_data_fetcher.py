@@ -22,6 +22,10 @@ log = structlog.get_logger(__name__)
 
 _WORKERS = 5
 _DEFAULT_STOP_PCT = 0.05
+# Max seconds to wait for ALL per-stock data fetches.
+# If any fetch (screener.in scraping, yfinance, gnews) hangs beyond this,
+# we cancel it and proceed with N/A for that stock rather than hanging forever.
+_FETCH_TIMEOUT_SEC = 90
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +301,12 @@ class BatchDataFetcher:
     ) -> tuple[str, str, str, str]:
         log.info("batch_fetcher.start", stocks=len(symbols))
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self._workers) as pool:
+        # Use explicit pool management (no `with` block) so we can enforce a
+        # total timeout.  `with ThreadPoolExecutor:` calls shutdown(wait=True)
+        # on exit, which blocks indefinitely if any fetch hangs (e.g. screener
+        # scraping, gnews HTTP).
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self._workers)
+        try:
             if entries_map:
                 tech_futs = [pool.submit(_fetch_technical_row, entries_map[s]) for s in symbols]
                 fund_futs = [pool.submit(_fetch_fundamental_row, entries_map[s]) for s in symbols]
@@ -333,10 +342,32 @@ class BatchDataFetcher:
                 for s in symbols
             ]
 
-        tech_rows = [f.result() for f in tech_futs]
-        fund_rows = [f.result() for f in fund_futs]
-        risk_rows = [f.result() for f in risk_futs]
-        comp_rows = [f.result() for f in comp_futs]
+            all_futs = tech_futs + fund_futs + risk_futs + comp_futs
+            done, not_done = concurrent.futures.wait(all_futs, timeout=_FETCH_TIMEOUT_SEC)
+            if not_done:
+                log.warning(
+                    "batch_fetcher.fetch_timeout",
+                    timed_out=len(not_done),
+                    completed=len(done),
+                )
+                for f in not_done:
+                    f.cancel()
+        finally:
+            pool.shutdown(wait=False)  # don't block; timed-out threads drain in bg
+
+        def _get(f: concurrent.futures.Future) -> Any:
+            """Return future result, or None if cancelled/timed-out/errored."""
+            if f.done() and not f.cancelled():
+                try:
+                    return f.result()
+                except Exception:
+                    pass
+            return None
+
+        tech_rows = [r for r in (_get(f) for f in tech_futs) if r is not None]
+        fund_rows = [r for r in (_get(f) for f in fund_futs) if r is not None]
+        risk_rows = [r for r in (_get(f) for f in risk_futs) if r is not None]
+        comp_rows = [r for r in (_get(f) for f in comp_futs) if r is not None]
 
         log.info("batch_fetcher.done", stocks=len(symbols))
 

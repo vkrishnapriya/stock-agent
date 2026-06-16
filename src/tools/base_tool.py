@@ -20,6 +20,8 @@ import os
 from abc import abstractmethod
 from typing import Any, ClassVar
 
+import threading
+
 import redis.asyncio as aioredis
 import structlog
 from crewai.tools import BaseTool as CrewBaseTool
@@ -33,14 +35,32 @@ log = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _async_redis: aioredis.Redis | None = None
+_async_redis_loop_id: int | None = None   # id() of the loop that created _async_redis
+_redis_lock = threading.Lock()
 _rate_limiters: dict[str, RateLimiter] = {}
 
 
 def _get_async_redis() -> aioredis.Redis:
-    global _async_redis
-    if _async_redis is None:
-        url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        _async_redis = aioredis.from_url(url, decode_responses=True)
+    """Return a Redis client that is valid for the *current* event loop.
+
+    Each call to ``asyncio.run()`` (used by worker threads) creates a brand-new
+    event loop and closes it on exit.  Reusing a client created in a previous
+    loop causes "Event loop is closed" / "Future attached to a different loop"
+    errors.  We track the id() of the loop the client was built for and
+    recreate it whenever the loop changes.
+    """
+    global _async_redis, _async_redis_loop_id
+    try:
+        current_loop_id = id(asyncio.get_running_loop())
+    except RuntimeError:
+        current_loop_id = None  # no running loop in this thread
+
+    with _redis_lock:
+        if _async_redis is None or _async_redis_loop_id != current_loop_id:
+            url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+            _async_redis = aioredis.from_url(url, decode_responses=True)
+            _async_redis_loop_id = current_loop_id
+
     return _async_redis
 
 

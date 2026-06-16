@@ -214,6 +214,13 @@ _SECTOR_MAP: dict[str, str] = {
 }
 
 
+# Yahoo Finance ticker overrides: NSE symbol → YF ticker (without .NS suffix)
+# Add entries here when NSE renames a stock or YF uses a different ticker.
+_YF_TICKER_OVERRIDE: dict[str, str] = {
+    "ZENSAR": "ZENSARTECH",  # NSE renamed to ZENSARTECH; YF uses ZENSARTECH.NS
+}
+
+
 def _get_universe(name: str) -> list[str]:
     key = name.strip().upper()
     if key not in _UNIVERSES:
@@ -258,7 +265,7 @@ class MarketScannerAgent:
         symbols = _get_universe(universe)
         log.info("market_scanner.start", universe=universe, total=len(symbols))
 
-        ns_symbols = [f"{s}.NS" for s in symbols]
+        ns_symbols = [f"{_YF_TICKER_OVERRIDE.get(s, s)}.NS" for s in symbols]
         df = yf.download(
             ns_symbols,
             period="3mo",

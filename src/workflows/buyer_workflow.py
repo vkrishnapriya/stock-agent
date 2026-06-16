@@ -48,6 +48,9 @@ _TOP_N = 5                 # final buy candidates returned
 _SENTIMENT_THRESHOLD = -20.0   # stocks below this sentiment score are dropped
 _PARALLEL_WORKERS = 1      # sequential to stay within free-tier RPM limits
 _DEFAULT_STOP_PCT = 0.05   # 5% below entry if RM agent unavailable
+# Hard time-caps to prevent hung LLM / API calls from blocking the workflow.
+_SENTIMENT_TIMEOUT_SEC = 120   # 2 min for the batch sentiment LLM call
+_BATCH_TIMEOUT_SEC = 180       # 3 min for all 4 parallel analysis LLM calls
 
 
 # ---------------------------------------------------------------------------
@@ -90,17 +93,27 @@ class BuyerWorkflow:
             available_cash=available_cash,
         )
 
-        # ── Step 1: Market scan ───────────────────────────────────────────
-        scan_results = MarketScannerAgent().scan(universe, top_n=_MAX_SHORTLIST)
-        shortlist = scan_results.shortlist(_MAX_SHORTLIST)
-        log.info("buyer_workflow.scan_done", shortlisted=len(shortlist))
-
-        # ── Step 2: Semantic prompt filter ───────────────────────────────
+        # ── Step 1: Extract intent BEFORE scan so we can widen the scan pool
+        # when a sector is specified (otherwise sector stocks outside the
+        # top-N momentum leaders would be silently dropped before filtering).
+        intent = None
         if prompt:
             from src.workflows.director import WorkflowDirector
             intent = WorkflowDirector().extract_intent(prompt)
+
+        # ── Step 2: Market scan ───────────────────────────────────────────
+        # Scan the full universe when sectors are requested so sector stocks
+        # are not eliminated by the momentum-rank cap before filtering.
+        scan_top_n = 9999 if (intent and intent.sectors) else _MAX_SHORTLIST
+        scan_results = MarketScannerAgent().scan(universe, top_n=scan_top_n)
+        shortlist = scan_results.shortlist(scan_top_n)
+        log.info("buyer_workflow.scan_done", shortlisted=len(shortlist))
+
+        # ── Step 3: Semantic prompt filter ───────────────────────────────
+        if intent:
             shortlist = self._filter_by_intent(shortlist, intent)
             log.info("buyer_workflow.intent_filter", after=len(shortlist), style=intent.style)
+        shortlist = shortlist[:_MAX_SHORTLIST]
 
         if not shortlist:
             log.warning("buyer_workflow.no_candidates_after_intent_filter")
@@ -300,15 +313,36 @@ class BuyerWorkflow:
         return passed
 
     def _run_sentiment_batch(self, entries: list[ScanEntry]) -> SentimentResultBatch | None:
-        """Fire a single batch sentiment crew for all *entries*."""
+        """Fire a single batch sentiment crew for all *entries*.
+
+        Runs the crew in a worker thread so we can enforce a hard timeout and
+        avoid blocking the main thread if the LLM call hangs.
+        """
+        def _kickoff() -> SentimentResultBatch | None:
+            try:
+                crew = NewsSentimentAgent().build_batch_crew(entries)
+                result = crew.kickoff()
+                outputs = getattr(result, "tasks_output", []) or []
+                return _pydantic(outputs, 0)
+            except Exception as exc:
+                log.warning("buyer_workflow.sentiment_batch_error", error=str(exc))
+                return None
+
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            crew = NewsSentimentAgent().build_batch_crew(entries)
-            result = crew.kickoff()
-            outputs = getattr(result, "tasks_output", []) or []
-            return _pydantic(outputs, 0)
+            fut = pool.submit(_kickoff)
+            return fut.result(timeout=_SENTIMENT_TIMEOUT_SEC)
+        except concurrent.futures.TimeoutError:
+            log.warning(
+                "buyer_workflow.sentiment_timeout",
+                timeout=_SENTIMENT_TIMEOUT_SEC,
+            )
+            return None
         except Exception as exc:
             log.warning("buyer_workflow.sentiment_batch_error", error=str(exc))
             return None
+        finally:
+            pool.shutdown(wait=False)
 
     # ------------------------------------------------------------------
     # Step 3: Batch analysis (1 LLM call per agent type, all stocks at once)
@@ -343,17 +377,43 @@ class BuyerWorkflow:
         rm_task = RiskManagementAgent().build_batch_task(risk_table, symbols, available_cash)
         ca_task = CompetitorAnalysisAgent().build_batch_task(comp_table, symbols)
 
-        # Fire all 4 LLM calls in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        # Fire all 4 LLM calls in parallel with a hard timeout.
+        # Avoid `with ThreadPoolExecutor:` — its __exit__ calls shutdown(wait=True)
+        # which blocks indefinitely if any LLM call hangs.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        try:
             ta_fut = pool.submit(self._kickoff_batch, ta_task)
             fa_fut = pool.submit(self._kickoff_batch, fa_task)
             rm_fut = pool.submit(self._kickoff_batch, rm_task)
             ca_fut = pool.submit(self._kickoff_batch, ca_task)
 
-        ta_batch = ta_fut.result()
-        fa_batch = fa_fut.result()
-        rm_batch = rm_fut.result()
-        ca_batch = ca_fut.result()
+            done, not_done = concurrent.futures.wait(
+                [ta_fut, fa_fut, rm_fut, ca_fut],
+                timeout=_BATCH_TIMEOUT_SEC,
+            )
+            if not_done:
+                log.warning(
+                    "buyer_workflow.batch_llm_timeout",
+                    timed_out=len(not_done),
+                    timeout=_BATCH_TIMEOUT_SEC,
+                )
+                for f in not_done:
+                    f.cancel()
+        finally:
+            pool.shutdown(wait=False)
+
+        def _safe(f: concurrent.futures.Future) -> Any:
+            if f.done() and not f.cancelled():
+                try:
+                    return f.result()
+                except Exception:
+                    pass
+            return None
+
+        ta_batch = _safe(ta_fut)
+        fa_batch = _safe(fa_fut)
+        rm_batch = _safe(rm_fut)
+        ca_batch = _safe(ca_fut)
 
         ta_map = {s.symbol: s for s in (ta_batch.signals      if ta_batch else [])}
         fa_map = {s.symbol: s for s in (fa_batch.scores       if fa_batch else [])}

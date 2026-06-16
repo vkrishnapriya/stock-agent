@@ -113,15 +113,15 @@ class PeerPricePerformanceTool(BaseTool):
                     }
                     continue
 
-                current_price = round(float(close.iloc[-1]), 2)
+                current_price = round(float(close.iat[-1]), 2)
 
                 # 3M return: oldest available price to today
-                price_3m_ago = float(close.iloc[0])
+                price_3m_ago = float(close.iat[0])
                 return_3m = round((current_price / price_3m_ago - 1) * 100, 2)
 
                 # 1M return: ~21 trading days back; fall back to 3M if insufficient
                 if len(close) >= _TRADING_DAYS_1M:
-                    price_1m_ago = float(close.iloc[-_TRADING_DAYS_1M])
+                    price_1m_ago = float(close.iat[-_TRADING_DAYS_1M])
                     return_1m = round((current_price / price_1m_ago - 1) * 100, 2)
                 else:
                     return_1m = return_3m
